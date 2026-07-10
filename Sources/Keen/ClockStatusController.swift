@@ -9,7 +9,7 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
 
     func install() {
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "calendar.badge.clock", accessibilityDescription: "Schedule")
+        button.image = NSImage(systemSymbolName: "calendar.badge.clock", accessibilityDescription: "Sched")
         button.image?.isTemplate = true
         statusMenu.delegate = self
         statusItem.menu = statusMenu
@@ -64,23 +64,33 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
 
     private func rebuildMenu() {
         statusMenu.removeAllItems()
-        let calendar = NSDatePicker(frame: NSRect(x: 0, y: 0, width: 270, height: 154))
+        statusMenu.minimumWidth = 280
+        let calendarHost = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 164))
+        let calendar = NSDatePicker()
         calendar.datePickerStyle = .clockAndCalendar
         calendar.datePickerElements = [.yearMonthDay]
         calendar.dateValue = .now
         calendar.isBordered = false
+        calendar.translatesAutoresizingMaskIntoConstraints = false
+        calendarHost.addSubview(calendar)
+        NSLayoutConstraint.activate([
+            calendar.centerXAnchor.constraint(equalTo: calendarHost.centerXAnchor),
+            calendar.centerYAnchor.constraint(equalTo: calendarHost.centerYAnchor),
+        ])
         let calendarItem = NSMenuItem()
-        calendarItem.view = calendar
+        calendarItem.view = calendarHost
         statusMenu.addItem(calendarItem)
         statusMenu.addItem(.separator())
 
         if let next = ScheduleStore.shared.nextAlarm() {
             let remaining = max(0, Int(next.fireAt.timeIntervalSinceNow))
+            let shortTitle = Self.compact(next.title, limit: 24)
             let nextItem = NSMenuItem(
-                title: "Next: \(next.title) · \(SchedTimeFormat.string(from: next.fireAt)) (\(Self.remainingText(remaining)))",
+                title: "Next · \(shortTitle) · \(Self.remainingText(remaining))",
                 action: nil,
                 keyEquivalent: ""
             )
+            nextItem.image = NSImage(systemSymbolName: "bell.fill", accessibilityDescription: nil)
             nextItem.isEnabled = false
             statusMenu.addItem(nextItem)
         } else {
@@ -97,17 +107,23 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
         timerMenu.addItem(menuItem("50 minutes", action: #selector(start50)))
         timerItem.submenu = timerMenu
         statusMenu.addItem(timerItem)
-        statusMenu.addItem(menuItem("Open Plan", action: #selector(openPlan)))
-        statusMenu.addItem(menuItem("Open Calendar", action: #selector(openCalendar)))
-        statusMenu.addItem(menuItem("Dismiss Alerts", action: #selector(dismissAlerts)))
+        statusMenu.addItem(menuItem("Open Plan", symbol: "list.bullet.rectangle", action: #selector(openPlan)))
+        statusMenu.addItem(menuItem("Open Calendar", symbol: "calendar", action: #selector(openCalendar)))
+        statusMenu.addItem(menuItem("Dismiss Alerts", symbol: "bell.slash", action: #selector(dismissAlerts)))
         statusMenu.addItem(.separator())
         statusMenu.addItem(menuItem("Quit Sched", action: #selector(quit)))
     }
 
-    private func menuItem(_ title: String, action: Selector) -> NSMenuItem {
+    private func menuItem(_ title: String, symbol: String? = nil, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
+        if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
         return item
+    }
+
+    private static func compact(_ value: String, limit: Int) -> String {
+        guard value.count > limit else { return value }
+        return String(value.prefix(max(1, limit - 1))) + "…"
     }
 
     private static func remainingText(_ seconds: Int) -> String {
