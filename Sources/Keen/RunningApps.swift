@@ -12,6 +12,19 @@ struct RunningApp: Equatable, Identifiable {
 
 @MainActor
 enum RunningApps {
+    static func icon(bundleId: String?, executablePath: String?) -> NSImage? {
+        if let bundleId, !bundleId.isEmpty,
+           let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            return NSWorkspace.shared.icon(forFile: appURL.path)
+        }
+        guard let executablePath, !executablePath.isEmpty else { return nil }
+        if let range = executablePath.range(of: ".app/", options: .caseInsensitive) {
+            let appPath = String(executablePath[...range.lowerBound]) + "app"
+            return NSWorkspace.shared.icon(forFile: appPath)
+        }
+        return NSWorkspace.shared.icon(forFile: executablePath)
+    }
+
     static func availableTargets() -> [RunningApp] {
         var targets = list()
         var seen = Set(targets.map(\.id))
@@ -107,7 +120,12 @@ enum RunningApps {
               let name = values["name"] else { return nil }
         let bundleId = values["bundleId"].flatMap { $0.isEmpty ? nil : $0 }
         let path = values["executablePath"].flatMap { $0.isEmpty ? nil : $0 }
-        return RunningApp(name: name, bundleId: bundleId, executablePath: path, icon: popup.selectedItem?.image)
+        return RunningApp(
+            name: name,
+            bundleId: bundleId,
+            executablePath: path,
+            icon: popup.selectedItem?.image ?? icon(bundleId: bundleId, executablePath: path)
+        )
     }
 
     static func target(for url: URL) -> RunningApp? {
