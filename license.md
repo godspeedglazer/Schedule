@@ -181,18 +181,47 @@ A contribution does not automatically grant the Licensor the right to offer that
 
 Contributors retain responsibility for ensuring that they have the legal right to submit their contributions.
 
-### 10. Patent License
+### 10. Patents and Patent Claims
 
-Subject to the terms of this License, each Licensor and contributor grants You a worldwide, royalty-free, nonexclusive patent license, for Permitted Purposes only, under patent claims that the Licensor or contributor can license and that are necessarily infringed by the Software or their contribution alone.
+No patent ownership or patent-enforcement right is granted under this License.
 
-The patent license does not extend to:
+Subject to the terms of this License, the Licensor grants You only the limited patent permission, if any is necessary, to exercise the copyright permissions expressly granted for a Permitted Purpose.
 
-1. Commercial Use;
-2. Organizational Use;
-3. combinations with other products or technologies unless infringement necessarily results from the Software itself; or
-4. patent claims arising solely from Your modifications.
+You may not, directly or indirectly:
 
-If You or an Organization acting on Your behalf initiates a patent claim alleging that the Software or a contribution infringes a patent, all patent rights granted to You under this License terminate immediately.
+1. apply for, prosecute, acquire, purchase, or control a patent claim directed to the Software, the original functionality of the Software, or an invention substantially derived from access to the Software;
+2. claim that You invented any portion of the Software or functionality disclosed by the Software that You did not independently create;
+3. assert, threaten, license, sell, transfer, or enforce a patent claim against the Licensor, a contributor, the Software, a Modified Work, or any person exercising rights under this License;
+4. use the Software or knowledge obtained from the Software to obtain patent rights intended to restrict the Licensor or permitted community users; or
+5. assist another person or entity in doing any of the foregoing.
+
+You may seek patent protection for an invention that You can demonstrate was independently developed without use of, reference to, or derivation from the Software. However, You may not use such a patent to restrict the Software, the Licensor, a contributor, a permitted fork, or any implementation of functionality disclosed by the Software.
+
+If You submit a contribution, You grant the Licensor a perpetual, worldwide, irrevocable, royalty-free, transferable, and sublicensable patent license under any patent claims You control that would be infringed by the contribution, the Software incorporating the contribution, or the Licensor’s exercise of rights in either.
+
+If You initiate, threaten, assist, or maintain a patent claim concerning the Software or a Modified Work, all rights granted to You under this License terminate immediately and permanently.
+
+Nothing in this section transfers ownership of the Licensor’s patents, copyrights, trademarks, source code, or other intellectual property to You.
+
+### 10A. Ownership of Forks and Modified Works
+
+The Licensor retains all ownership rights in the original Software.
+
+Creating, possessing, publishing, or maintaining a fork does not transfer ownership of the original Software and does not make the operator of the fork the author, owner, or official maintainer of the original Software.
+
+You retain copyright only in original material that You independently add to a Modified Work, subject to all of the following:
+
+1. Your additions do not give You ownership of the original Software;
+2. the Modified Work remains governed by this License;
+3. You may not remove or alter notices identifying the original Licensor or contributors;
+4. You must clearly distinguish Your modifications from the original Software;
+5. You may not represent the fork as the original or official Software;
+6. You may not relicense the Software or the Modified Work;
+7. You may not use or distribute the fork for Commercial Use or Organizational Use without a separate written Commercial License; and
+8. Your ownership of original additions does not grant You any patent, trademark, commercial, or relicensing right in the Software as a whole.
+
+A fork is permission to create and maintain a separate copy under this License. It is not an assignment of ownership.
+
 
 ### 11. No Trademark License
 
