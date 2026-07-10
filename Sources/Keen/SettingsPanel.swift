@@ -3,6 +3,8 @@ import ServiceManagement
 
 @MainActor
 final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
+    enum Mode { case preferences, limits }
+    private let mode: Mode
     private let scroll = NSScrollView()
     private let defaultLevel = NSPopUpButton()
     private let snoozeField = SettingsPanelController.integerField(value: 5, maximum: 60)
@@ -31,12 +33,19 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
     private let limitStepper = NSStepper()
     private let limitsList = NSStackView()
 
+    init(mode: Mode = .preferences) {
+        self.mode = mode
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
     override func loadView() {
         view = NSView()
         view.wantsLayer = true
         view.layer?.backgroundColor = .clear
 
-        let title = NSTextField(labelWithString: "Preferences")
+        let title = NSTextField(labelWithString: mode == .limits ? "Limits" : "Preferences")
         title.font = KeenDesign.display(28)
         KeenDesign.label(title)
 
@@ -52,16 +61,17 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         let general = card(stack: generalStack())
         let menuBar = card(stack: menuBarStack())
         let limits = card(stack: limitsStack())
-        let content = NSStackView(views: [
-            sectionTitle("General"), general,
-            sectionTitle("Menu bar"), menuBar,
-            sectionTitle("App limits"), limits,
-        ])
+        let contentViews: [NSView] = mode == .limits
+            ? [sectionTitle("App limits"), limits]
+            : [sectionTitle("General"), general, sectionTitle("Menu bar"), menuBar]
+        let content = NSStackView(views: contentViews)
         content.orientation = .vertical
         content.alignment = .leading
         content.spacing = 10
-        content.setCustomSpacing(24, after: general)
-        content.setCustomSpacing(24, after: menuBar)
+        if mode == .preferences {
+            content.setCustomSpacing(24, after: general)
+            content.setCustomSpacing(24, after: menuBar)
+        }
         content.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(content)
 
@@ -70,10 +80,13 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             content.leadingAnchor.constraint(equalTo: document.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             content.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -24),
-            general.widthAnchor.constraint(equalTo: content.widthAnchor),
-            menuBar.widthAnchor.constraint(equalTo: content.widthAnchor),
-            limits.widthAnchor.constraint(equalTo: content.widthAnchor),
         ])
+        if mode == .limits {
+            limits.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+        } else {
+            general.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+            menuBar.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+        }
 
         let clip = scroll.contentView
         NSLayoutConstraint.activate([
@@ -99,7 +112,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        reloadTargets()
+        if mode == .limits { reloadTargets() }
         refreshNotificationHealth()
         view.layoutSubtreeIfNeeded()
         DispatchQueue.main.async { [weak self] in
@@ -256,6 +269,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         choose.representedObject = ["picker": "true"]
         targetPopup.menu?.addItem(choose)
         if chosenTarget == nil { chosenTarget = RunningApps.selectedApp(from: targetPopup) }
+        hydrateSelectedTargetIcon()
     }
 
     private func reloadLimits() {
@@ -272,9 +286,8 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             row.spacing = 8
 
             let icon = NSImageView()
-            icon.image = RunningApps.availableTargets().first(where: {
-                ($0.bundleId != nil && $0.bundleId == watch.bundleId) || $0.executablePath == watch.executablePath
-            })?.icon ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)
+            icon.image = RunningApps.icon(bundleId: watch.bundleId, executablePath: watch.executablePath)
+                ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.widthAnchor.constraint(equalToConstant: 18).isActive = true
             icon.heightAnchor.constraint(equalToConstant: 18).isActive = true
@@ -375,7 +388,21 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             chooseOtherTarget()
         } else {
             chosenTarget = RunningApps.selectedApp(from: targetPopup)
+            hydrateSelectedTargetIcon()
         }
+    }
+
+    private func hydrateSelectedTargetIcon() {
+        guard let selected = chosenTarget ?? RunningApps.selectedApp(from: targetPopup) else { return }
+        let icon = RunningApps.icon(bundleId: selected.bundleId, executablePath: selected.executablePath)
+        targetPopup.selectedItem?.image = icon
+        targetPopup.selectedItem?.image?.size = NSSize(width: 18, height: 18)
+        chosenTarget = RunningApp(
+            name: selected.name,
+            bundleId: selected.bundleId,
+            executablePath: selected.executablePath,
+            icon: icon
+        )
     }
 
     private func chooseOtherTarget() {
