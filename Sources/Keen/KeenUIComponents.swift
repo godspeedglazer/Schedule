@@ -581,6 +581,7 @@ enum KeenSection: String, CaseIterable {
     case schedule = "Schedule"
     case calendar = "Calendar"
     case timer = "Timer"
+    case limits = "Limits"
     case settings = "Settings"
 
     var shortLabel: String {
@@ -588,6 +589,7 @@ enum KeenSection: String, CaseIterable {
         case .schedule: "Plan"
         case .calendar: "Calendar"
         case .timer: "Timer"
+        case .limits: "Limits"
         case .settings: "Prefs"
         }
     }
@@ -597,6 +599,7 @@ enum KeenSection: String, CaseIterable {
         case .schedule: "calendar.badge.clock"
         case .calendar: "calendar"
         case .timer: "timer"
+        case .limits: "hourglass.badge.plus"
         case .settings: "switch.2"
         }
     }
