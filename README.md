@@ -4,6 +4,7 @@
 
 Sched is a small macOS app for reminders that actually interrupt you — not another notification you swipe away.
 <img width="1042" height="732" alt="image" src="https://github.com/user-attachments/assets/e0378a67-9486-4db1-bd53-c011722d7969" />
+*charming little ui, eh? :3*
 
 
 ## Why
@@ -26,3 +27,5 @@ No subscription. No cloud. No “intelligence” layer between you and the clock
 ## License
 
 Free and open for personal use. Fork it, break it, make it yours — if you're a person, of course.
+
+
