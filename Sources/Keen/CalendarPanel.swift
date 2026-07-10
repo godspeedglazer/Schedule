@@ -3,7 +3,7 @@ import EventKit
 
 @MainActor
 final class CalendarPanelController: NSViewController {
-    private let datePicker = NSDatePicker()
+    private let monthCalendar = SchedMonthCalendarView()
     private let selectedDateLabel = NSTextField(labelWithString: "")
     private let agendaStack = NSStackView()
     private let accessButton = KeenPrimaryButton("Show Calendar Events", action: #selector(requestCalendarAccess), target: nil)
@@ -22,19 +22,14 @@ final class CalendarPanelController: NSViewController {
         KeenDesign.label(subtitle, color: KeenDesign.inkMuted)
 
         let calendarGlass = KeenGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.14))
-        datePicker.datePickerStyle = .clockAndCalendar
-        datePicker.datePickerElements = [.yearMonthDay]
-        datePicker.dateValue = .now
-        datePicker.isBordered = false
-        datePicker.target = self
-        datePicker.action = #selector(dateChanged)
-        datePicker.translatesAutoresizingMaskIntoConstraints = false
-        calendarGlass.innerContentView.addSubview(datePicker)
+        monthCalendar.onSelection = { [weak self] _ in self?.reloadAgenda() }
+        monthCalendar.translatesAutoresizingMaskIntoConstraints = false
+        calendarGlass.innerContentView.addSubview(monthCalendar)
         NSLayoutConstraint.activate([
-            datePicker.leadingAnchor.constraint(equalTo: calendarGlass.innerContentView.leadingAnchor, constant: 18),
-            datePicker.trailingAnchor.constraint(equalTo: calendarGlass.innerContentView.trailingAnchor, constant: -18),
-            datePicker.topAnchor.constraint(equalTo: calendarGlass.innerContentView.topAnchor, constant: 18),
-            datePicker.heightAnchor.constraint(equalToConstant: 250),
+            monthCalendar.leadingAnchor.constraint(equalTo: calendarGlass.innerContentView.leadingAnchor, constant: 18),
+            monthCalendar.trailingAnchor.constraint(equalTo: calendarGlass.innerContentView.trailingAnchor, constant: -18),
+            monthCalendar.topAnchor.constraint(equalTo: calendarGlass.innerContentView.topAnchor, constant: 18),
+            monthCalendar.heightAnchor.constraint(equalToConstant: 304),
         ])
 
         let today = KeenGhostButton("Today", action: #selector(goToToday), target: self)
@@ -45,9 +40,9 @@ final class CalendarPanelController: NSViewController {
         calendarActions.translatesAutoresizingMaskIntoConstraints = false
         calendarGlass.innerContentView.addSubview(calendarActions)
         NSLayoutConstraint.activate([
-            calendarActions.leadingAnchor.constraint(equalTo: datePicker.leadingAnchor),
+            calendarActions.leadingAnchor.constraint(equalTo: monthCalendar.leadingAnchor),
             calendarActions.bottomAnchor.constraint(equalTo: calendarGlass.innerContentView.bottomAnchor, constant: -18),
-            calendarActions.topAnchor.constraint(greaterThanOrEqualTo: datePicker.bottomAnchor, constant: 12),
+            calendarActions.topAnchor.constraint(equalTo: monthCalendar.bottomAnchor, constant: 16),
         ])
 
         let agendaGlass = KeenGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.14))
@@ -98,12 +93,12 @@ final class CalendarPanelController: NSViewController {
             subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
             calendarGlass.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 18),
             calendarGlass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            calendarGlass.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            calendarGlass.heightAnchor.constraint(equalToConstant: 400),
             calendarGlass.widthAnchor.constraint(equalToConstant: 320),
             agendaGlass.topAnchor.constraint(equalTo: calendarGlass.topAnchor),
             agendaGlass.leadingAnchor.constraint(equalTo: calendarGlass.trailingAnchor, constant: 16),
             agendaGlass.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            agendaGlass.bottomAnchor.constraint(equalTo: calendarGlass.bottomAnchor),
+            agendaGlass.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
         accessButton.target = self
@@ -128,10 +123,8 @@ final class CalendarPanelController: NSViewController {
         CalendarService.shared.onChange = nil
     }
 
-    @objc private func dateChanged() { reloadAgenda() }
-
     @objc private func goToToday() {
-        datePicker.dateValue = .now
+        monthCalendar.select(date: .now)
         reloadAgenda()
     }
 
@@ -147,7 +140,7 @@ final class CalendarPanelController: NSViewController {
     }
 
     private func reloadAgenda() {
-        let date = datePicker.dateValue
+        let date = monthCalendar.selectedDate
         let formatter = DateFormatter()
         formatter.dateStyle = .full
         formatter.timeStyle = .none
@@ -238,5 +231,177 @@ final class CalendarPanelController: NSViewController {
         label.font = KeenDesign.body(12)
         KeenDesign.label(label, color: KeenDesign.inkMuted)
         return label
+    }
+}
+
+/// A native AppKit month grid sized for Sched's fixed window. `NSDatePicker`'s
+/// calendar style has a fixed intrinsic size, which caused the tiny floating
+/// control that this view replaces.
+@MainActor
+private final class SchedMonthCalendarView: NSView {
+    var onSelection: ((Date) -> Void)?
+    private(set) var selectedDate = Date()
+
+    private let monthLabel = NSTextField(labelWithString: "")
+    private let weekdayRow = NSStackView()
+    private let weeks = NSStackView()
+    private var visibleMonth = Calendar.autoupdatingCurrent.dateInterval(of: .month, for: .now)?.start ?? .now
+    private var dayButtons: [SchedDayButton] = []
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        monthLabel.font = KeenDesign.title(17)
+        KeenDesign.label(monthLabel)
+        let previous = navigationButton(symbol: "chevron.left", action: #selector(previousMonth))
+        let next = navigationButton(symbol: "chevron.right", action: #selector(nextMonth))
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let header = NSStackView(views: [monthLabel, spacer, previous, next])
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 6
+
+        weekdayRow.orientation = .horizontal
+        weekdayRow.distribution = .fillEqually
+        weekdayRow.spacing = 4
+        weeks.orientation = .vertical
+        weeks.distribution = .fillEqually
+        weeks.spacing = 4
+
+        for _ in 0..<6 {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.distribution = .fillEqually
+            row.spacing = 4
+            for _ in 0..<7 {
+                let button = SchedDayButton()
+                button.target = self
+                button.action = #selector(daySelected(_:))
+                button.heightAnchor.constraint(equalToConstant: 34).isActive = true
+                dayButtons.append(button)
+                row.addArrangedSubview(button)
+            }
+            weeks.addArrangedSubview(row)
+        }
+
+        let stack = NSStackView(views: [header, weekdayRow, weeks])
+        stack.orientation = .vertical
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            header.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            weekdayRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            weeks.widthAnchor.constraint(equalTo: stack.widthAnchor),
+        ])
+        reload()
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+    func select(date: Date) {
+        selectedDate = date
+        visibleMonth = Calendar.autoupdatingCurrent.dateInterval(of: .month, for: date)?.start ?? date
+        reload()
+    }
+
+    private func navigationButton(symbol: String, action: Selector) -> NSButton {
+        let button = NSButton(
+            image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage(),
+            target: self,
+            action: action
+        )
+        button.isBordered = false
+        button.contentTintColor = KeenDesign.inkMuted
+        button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        return button
+    }
+
+    @objc private func previousMonth() { moveMonth(-1) }
+    @objc private func nextMonth() { moveMonth(1) }
+
+    private func moveMonth(_ amount: Int) {
+        visibleMonth = Calendar.autoupdatingCurrent.date(byAdding: .month, value: amount, to: visibleMonth) ?? visibleMonth
+        reload()
+    }
+
+    @objc private func daySelected(_ sender: SchedDayButton) {
+        guard let date = sender.date else { return }
+        selectedDate = date
+        if !Calendar.autoupdatingCurrent.isDate(date, equalTo: visibleMonth, toGranularity: .month) {
+            visibleMonth = Calendar.autoupdatingCurrent.dateInterval(of: .month, for: date)?.start ?? date
+        }
+        reload()
+        onSelection?(date)
+    }
+
+    private func reload() {
+        let calendar = Calendar.autoupdatingCurrent
+        let monthFormatter = DateFormatter()
+        monthFormatter.locale = .autoupdatingCurrent
+        monthFormatter.setLocalizedDateFormatFromTemplate("MMMM yyyy")
+        monthLabel.stringValue = monthFormatter.string(from: visibleMonth)
+
+        weekdayRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+        let offset = max(0, calendar.firstWeekday - 1)
+        for index in 0..<7 {
+            let label = NSTextField(labelWithString: symbols[(index + offset) % 7])
+            label.alignment = .center
+            label.font = KeenDesign.caption(10)
+            KeenDesign.label(label, color: KeenDesign.inkMuted)
+            weekdayRow.addArrangedSubview(label)
+        }
+
+        let weekday = calendar.component(.weekday, from: visibleMonth)
+        let leading = (weekday - calendar.firstWeekday + 7) % 7
+        let firstVisible = calendar.date(byAdding: .day, value: -leading, to: visibleMonth) ?? visibleMonth
+        let accessibilityFormatter = DateFormatter()
+        accessibilityFormatter.dateStyle = .full
+        accessibilityFormatter.timeStyle = .none
+        for (index, button) in dayButtons.enumerated() {
+            let date = calendar.date(byAdding: .day, value: index, to: firstVisible) ?? firstVisible
+            button.date = date
+            button.title = String(calendar.component(.day, from: date))
+            button.isInVisibleMonth = calendar.isDate(date, equalTo: visibleMonth, toGranularity: .month)
+            button.isSelectedDate = calendar.isDate(date, inSameDayAs: selectedDate)
+            button.isToday = calendar.isDateInToday(date)
+            button.setAccessibilityLabel(accessibilityFormatter.string(from: date))
+            button.refreshStyle()
+        }
+    }
+}
+
+@MainActor
+private final class SchedDayButton: NSButton {
+    var date: Date?
+    var isInVisibleMonth = true
+    var isSelectedDate = false
+    var isToday = false
+
+    init() {
+        super.init(frame: .zero)
+        isBordered = false
+        focusRingType = .none
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        font = KeenDesign.body(12)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+    func refreshStyle() {
+        layer?.backgroundColor = isSelectedDate ? KeenDesign.accent.cgColor : NSColor.clear.cgColor
+        layer?.borderWidth = isToday && !isSelectedDate ? 1.5 : 0
+        layer?.borderColor = KeenDesign.accent.cgColor
+        contentTintColor = isSelectedDate ? .white : (isInVisibleMonth ? KeenDesign.ink : KeenDesign.inkFaint)
+        alphaValue = isInVisibleMonth ? 1 : 0.55
     }
 }
