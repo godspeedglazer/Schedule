@@ -3,6 +3,8 @@
 > Don't you just hate Shortcuts? Apple AI bugging you? A simple, free, open-code (and technically yours to do literally anything with as long as you're not doing anything for a corp) app for powerful automated reminders.
 
 Sched is a small macOS app for reminders that actually interrupt you — not another notification you swipe away.
+<img width="1042" height="732" alt="image" src="https://github.com/user-attachments/assets/e0378a67-9486-4db1-bd53-c011722d7969" />
+
 
 ## Why
 
