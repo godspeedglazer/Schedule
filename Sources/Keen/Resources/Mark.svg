@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Reminder timeline mark">
+  <g fill="#292723">
+    <rect x="24" y="54" width="126" height="20" rx="10"/>
+    <rect x="24" y="118" width="98" height="20" rx="10"/>
+    <rect x="24" y="182" width="126" height="20" rx="10"/>
+  </g>
+  <circle cx="174" cy="128" r="38" fill="#C96B25"/>
+  <circle cx="174" cy="128" r="14" fill="#F5F0E7"/>
+</svg>

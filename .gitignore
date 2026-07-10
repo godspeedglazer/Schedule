@@ -1,0 +1,22 @@
+# Build / local
+.build/
+.swiftpm/
+dist/
+*.app/
+DerivedData/
+
+# Agent / personal notes (not for public)
+AGENTS.md
+docs/
+.codex/
+
+# Local-only / broken / path-identifying scripts
+Scripts/keenctl
+Scripts/uninstall-keen.sh
+Scripts/restart-keen.sh
+launchd/
+
+# OS junk
+.DS_Store
+*.swp
+*~

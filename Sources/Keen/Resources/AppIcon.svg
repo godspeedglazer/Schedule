@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Reminder timeline app icon</title>
+  <desc id="desc">A warm rounded square with three timeline strokes and an orange focus marker.</desc>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#F5F0E7"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#DED6C9" stroke-width="3"/>
+  <g fill="#292723">
+    <rect x="262" y="316" width="404" height="72" rx="36"/>
+    <rect x="262" y="476" width="312" height="72" rx="36"/>
+    <rect x="262" y="636" width="404" height="72" rx="36"/>
+  </g>
+  <circle cx="700" cy="512" r="92" fill="#C96B25"/>
+  <circle cx="700" cy="512" r="34" fill="#F5F0E7"/>
+</svg>
