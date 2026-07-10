@@ -70,7 +70,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         case .schedule: vc = SchedulePanelController()
         case .calendar: vc = CalendarPanelController()
         case .timer: vc = TimerPanelController()
-        case .settings: vc = SettingsPanelController()
+        case .limits: vc = SettingsPanelController(mode: .limits)
+        case .settings: vc = SettingsPanelController(mode: .preferences)
         }
         panels[section] = vc
         return vc
