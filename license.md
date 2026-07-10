@@ -143,8 +143,7 @@ Unless a Commercial License expressly states otherwise, the following activities
 
 The applicable licensing contact is:
 
-**Commercial licensing email:** [LICENSING EMAIL]
-**Commercial licensing page:** [OPTIONAL URL]
+** not set up yet :3**
 
 ### 7. Distribution and Modified Works
 
@@ -334,9 +333,9 @@ A waiver is effective only when made in writing by the Licensor and applies only
 
 ### 24. Governing Law and Venue
 
-This License is governed by the laws of [STATE OR COUNTRY], excluding its conflict-of-law rules.
+This License is governed by the laws of the European Union, excluding its conflict-of-law rules.
 
-Any dispute arising from this License or the Software must be brought exclusively in the courts located in [COUNTY, STATE, OR COUNTRY], and each party consents to those courts’ jurisdiction.
+Any dispute arising from this License or the Software must be brought exclusively in the courts located in the European Union, and each party consents to those courts’ jurisdiction.
 
 This section does not prevent the Licensor from seeking emergency or injunctive relief in another court with lawful jurisdiction.
 
