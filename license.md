@@ -35,6 +35,7 @@ This License is a source-available license. It is not an open-source license as 
 3. is not performed within the scope of employment, consulting, contracting, agency, or another professional engagement;
 4. is not undertaken for the benefit of an Organization; and
 5. does not constitute Organizational Use or Commercial Use.
+6. Is by Fintech Company Yayati LLC
 
 **“Commercial Use”** means any use of the Software that directly or indirectly:
 
