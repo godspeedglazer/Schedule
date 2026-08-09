@@ -26,6 +26,7 @@ final class ModelMigrationTests: XCTestCase {
         XCTAssertFalse(store.repeatSoundOnAlert)
         XCTAssertEqual(store.defaultSound, .defaultSystem)
         XCTAssertEqual(store.soundVolume, 0.8, accuracy: 0.001)
+        XCTAssertEqual(store.dockPresence, .whileWindowOpen)
         XCTAssertTrue(store.menuBarClockEnabled)
         XCTAssertTrue(store.menuBarTimerEnabled)
         XCTAssertFalse(store.menuBarTimerHideWhenIdle)
@@ -50,6 +51,7 @@ final class ModelMigrationTests: XCTestCase {
         let alarm = try JSONDecoder().decode(SchedAlarm.self, from: data)
         XCTAssertFalse(alarm.isTimer)
         XCTAssertNil(alarm.pausedRemainingSeconds)
+        XCTAssertNil(alarm.calendarEventIdentifier)
     }
 
     func testAlarmSoundChoicesRoundTrip() throws {
@@ -74,6 +76,17 @@ final class ModelMigrationTests: XCTestCase {
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(SchedAlarm.self, from: data)
         XCTAssertEqual(decoded.sound, .system(name: "Ping"))
+    }
+
+    func testCalendarLinkRoundTrips() throws {
+        let original = SchedAlarm(
+            title: "Meeting",
+            fireAt: Date(timeIntervalSince1970: 1_800_000_000),
+            calendarEventIdentifier: "event-123"
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(SchedAlarm.self, from: data)
+        XCTAssertEqual(decoded.calendarEventIdentifier, "event-123")
     }
 
     func testPausedTimerRoundTrips() throws {

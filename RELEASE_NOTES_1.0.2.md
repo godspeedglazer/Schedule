@@ -1,6 +1,6 @@
 # Sched 1.0.2
 
-maturity pass across the menu bar, timers, sounds, calendar interactions, limits, persistence, and internal naming. Still very broken. Not fit for release. Splitting up the menu bar is the biggest thing here.
+This release is a maturity pass across the menu bar, timers, sounds, calendar interactions, limits, persistence, and internal naming.
 
 ## Menu bar
 
@@ -55,3 +55,9 @@ maturity pass across the menu bar, timers, sounds, calendar interactions, limits
 - Fixed daily reminders after long sleep/offline periods.
 - Fixed alert dismissal so it does not hide the entire app.
 - Fixed intervention target retention and narrowed notification actions to the alarm being acted on.
+
+## Version
+
+- Marketing version: `1.0.2`
+- Build: `102`
+- Minimum macOS: `14.0`
