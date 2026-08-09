@@ -21,3 +21,4 @@ launchd/
 *.swp
 *~
 *.env
+dist/File.txt
