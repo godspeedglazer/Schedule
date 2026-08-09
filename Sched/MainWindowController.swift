@@ -5,10 +5,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     static let shared = MainWindowController()
 
     private let contentHost = NSView()
-    private var navItems: [KeenSection: KeenNavItem] = [:]
-    private var panels: [KeenSection: NSViewController] = [:]
+    private var navItems: [SchedSection: SchedNavItem] = [:]
+    private var panels: [SchedSection: NSViewController] = [:]
     private var panelConstraints: [NSLayoutConstraint] = []
-    private var activeSection: KeenSection?
+    private var activeSection: SchedSection?
 
     private init() {
         let window = NSWindow(
@@ -28,7 +28,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = KeenDesign.canvas
+        window.backgroundColor = SchedDesign.canvas
         super.init(window: window)
         window.delegate = self
         buildChrome()
@@ -44,7 +44,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    func showSection(_ section: KeenSection) {
+    func showAlarm(_ id: UUID) {
+        showSection(.schedule)
+        if let schedule = panel(for: .schedule) as? SchedulePanelController {
+            schedule.selectAlarm(id)
+        }
+        showWindow()
+    }
+
+    func showSection(_ section: SchedSection) {
         guard activeSection != section else { return }
         activeSection = section
         for (key, item) in navItems { item.setSelected(key == section) }
@@ -65,7 +73,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         NSLayoutConstraint.activate(panelConstraints)
     }
 
-    private func panel(for section: KeenSection) -> NSViewController {
+    private func panel(for section: SchedSection) -> NSViewController {
         if let existing = panels[section] { return existing }
         let vc: NSViewController
         switch section {
@@ -81,7 +89,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func buildChrome() {
         guard let content = window?.contentView else { return }
-        let root = KeenCanvasView()
+        let root = SchedCanvasView()
         root.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(root)
         NSLayoutConstraint.activate([
@@ -91,8 +99,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             root.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
 
-        let railGlass = KeenGlassSurface(
-            cornerRadius: KeenDesign.railCorner,
+        let railGlass = SchedGlassSurface(
+            cornerRadius: SchedDesign.railCorner,
             tint: NSColor.white.withAlphaComponent(0.14)
         )
         let railStack = NSStackView()
@@ -101,18 +109,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         railStack.alignment = .centerX
         railStack.translatesAutoresizingMaskIntoConstraints = false
 
-        for section in KeenSection.allCases {
-            let item = KeenNavItem(section: section)
+        for section in SchedSection.allCases {
+            let item = SchedNavItem(section: section)
             item.target = self
             item.action = #selector(navTap(_:))
             navItems[section] = item
             railStack.addArrangedSubview(item)
         }
 
+        let railSpacer = NSView()
+        railSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
+        railSpacer.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        railStack.addArrangedSubview(railSpacer)
+        railStack.addArrangedSubview(makeRailMark())
+
         let inner = railGlass.innerContentView
         inner.addSubview(railStack)
         NSLayoutConstraint.activate([
             railStack.topAnchor.constraint(equalTo: inner.topAnchor, constant: 12),
+            railStack.bottomAnchor.constraint(equalTo: inner.bottomAnchor, constant: -12),
             railStack.leadingAnchor.constraint(equalTo: inner.leadingAnchor, constant: 8),
             railStack.trailingAnchor.constraint(equalTo: inner.trailingAnchor, constant: -8),
         ])
@@ -126,15 +141,37 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             railGlass.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             railGlass.topAnchor.constraint(equalTo: root.topAnchor, constant: 42),
             railGlass.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12),
-            railGlass.widthAnchor.constraint(equalToConstant: KeenDesign.railWidth),
-            contentHost.leadingAnchor.constraint(equalTo: railGlass.trailingAnchor, constant: KeenDesign.contentGap),
-            contentHost.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -KeenDesign.contentGap),
+            railGlass.widthAnchor.constraint(equalToConstant: SchedDesign.railWidth),
+            contentHost.leadingAnchor.constraint(equalTo: railGlass.trailingAnchor, constant: SchedDesign.contentGap),
+            contentHost.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -SchedDesign.contentGap),
             contentHost.topAnchor.constraint(equalTo: root.topAnchor, constant: 42),
-            contentHost.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -KeenDesign.contentGap),
+            contentHost.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -SchedDesign.contentGap),
         ])
     }
 
-    @objc private func navTap(_ sender: KeenNavItem) {
+
+    private func makeRailMark() -> NSView {
+        let image: NSImage
+        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "svg"),
+           let bundledImage = NSImage(contentsOf: url) {
+            image = bundledImage
+        } else {
+            image = NSImage(systemSymbolName: "calendar.badge.clock", accessibilityDescription: "Sched") ?? NSImage()
+        }
+
+        let imageView = NSImageView(image: image)
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.toolTip = "Sched"
+        imageView.setAccessibilityLabel("Sched")
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 30),
+            imageView.heightAnchor.constraint(equalToConstant: 30),
+        ])
+        return imageView
+    }
+
+    @objc private func navTap(_ sender: SchedNavItem) {
         showSection(sender.section)
     }
 

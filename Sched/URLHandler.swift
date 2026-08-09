@@ -3,7 +3,7 @@ import Foundation
 @MainActor
 enum URLHandler {
     static func handle(_ url: URL) {
-        guard url.scheme?.lowercased() == "keen" else { return }
+        guard let scheme = url.scheme?.lowercased(), ["sched", "keen"].contains(scheme) else { return }
         let host = (url.host ?? "").lowercased()
         let params = queryParams(url)
 
@@ -30,7 +30,7 @@ enum URLHandler {
             ScheduleStore.shared.setSnoozeMinutes(minutes)
 
         case "dismiss":
-            NotificationCenter.default.post(name: .keenDismissAll, object: nil)
+            NotificationCenter.default.post(name: .schedDismissAll, object: nil)
 
         case "shortcut", "run":
             if let name = params["name"] ?? params["shortcut"] {
@@ -49,7 +49,7 @@ enum URLHandler {
         }
     }
 
-    private static func actionFrom(_ params: [String: String]) -> KeenAction {
+    private static func actionFrom(_ params: [String: String]) -> SchedAction {
         if let shortcut = params["shortcut"] { return .runShortcut(name: shortcut) }
         if let url = params["url"] { return .openURL(url: url) }
         return .none
@@ -85,5 +85,5 @@ enum URLHandler {
 }
 
 extension Notification.Name {
-    static let keenDismissAll = Notification.Name("keen.dismissAll")
+    static let schedDismissAll = Notification.Name("sched.dismissAll")
 }

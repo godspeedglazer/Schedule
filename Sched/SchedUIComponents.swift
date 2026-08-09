@@ -1,13 +1,13 @@
 import AppKit
 
 @MainActor
-final class KeenCanvasView: NSView {
+final class SchedCanvasView: NSView {
     private let gradient = CAGradientLayer()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        gradient.colors = [KeenDesign.canvas.cgColor, KeenDesign.canvasDeep.cgColor]
+        gradient.colors = [SchedDesign.canvas.cgColor, SchedDesign.canvasDeep.cgColor]
         gradient.startPoint = CGPoint(x: 0.15, y: 0)
         gradient.endPoint = CGPoint(x: 0.85, y: 1)
         layer?.insertSublayer(gradient, at: 0)
@@ -45,12 +45,12 @@ final class KeenCanvasView: NSView {
 }
 
 @MainActor
-final class KeenFlippedView: NSView {
+final class SchedFlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
 @MainActor
-final class KeenGlassSurface: NSView {
+final class SchedGlassSurface: NSView {
     private let content = NSView()
     private var glassView: NSView?
     private var cornerRadius: CGFloat
@@ -61,7 +61,7 @@ final class KeenGlassSurface: NSView {
     var innerContentView: NSView { content }
 
     init(
-        cornerRadius: CGFloat = KeenDesign.cardRadius,
+        cornerRadius: CGFloat = SchedDesign.cardRadius,
         tint: NSColor? = nil,
         interactive: Bool = false,
         stableWhenInactive: Bool = true
@@ -161,7 +161,7 @@ final class KeenGlassSurface: NSView {
 }
 
 @MainActor
-final class KeenGlassContainer: NSView {
+final class SchedGlassContainer: NSView {
     let contentHost = NSView()
 
     init(spacing: CGFloat = 24) {
@@ -198,7 +198,7 @@ final class KeenGlassContainer: NSView {
 // MARK: - Buttons
 
 @MainActor
-final class KeenPrimaryButton: NSButton {
+final class SchedPrimaryButton: NSButton {
     init(_ title: String, action: Selector, target: AnyObject?) {
         super.init(frame: .zero)
         self.title = title
@@ -206,10 +206,10 @@ final class KeenPrimaryButton: NSButton {
         self.action = action
         bezelStyle = .rounded
         isBordered = true
-        bezelColor = KeenDesign.accent
+        bezelColor = SchedDesign.accent
         contentTintColor = .white
         controlSize = .large
-        font = KeenDesign.caption(12)
+        font = SchedDesign.caption(12)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 36).isActive = true
     }
@@ -218,7 +218,7 @@ final class KeenPrimaryButton: NSButton {
 }
 
 @MainActor
-final class KeenGhostButton: NSButton {
+final class SchedGhostButton: NSButton {
     init(_ title: String, action: Selector, target: AnyObject?) {
         super.init(frame: .zero)
         self.title = title
@@ -227,8 +227,8 @@ final class KeenGhostButton: NSButton {
         bezelStyle = .rounded
         isBordered = true
         controlSize = .regular
-        contentTintColor = KeenDesign.inkMuted
-        font = KeenDesign.caption(12)
+        contentTintColor = SchedDesign.inkMuted
+        font = SchedDesign.caption(12)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 30).isActive = true
     }
@@ -237,7 +237,7 @@ final class KeenGhostButton: NSButton {
 }
 
 @MainActor
-final class KeenDangerButton: NSButton {
+final class SchedDangerButton: NSButton {
     init(_ title: String, action: Selector, target: AnyObject?) {
         super.init(frame: .zero)
         self.title = title
@@ -245,10 +245,10 @@ final class KeenDangerButton: NSButton {
         self.action = action
         bezelStyle = .rounded
         isBordered = true
-        bezelColor = KeenDesign.takeover
+        bezelColor = SchedDesign.takeover
         contentTintColor = .white
         controlSize = .regular
-        font = KeenDesign.caption(12)
+        font = SchedDesign.caption(12)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 30).isActive = true
     }
@@ -259,15 +259,15 @@ final class KeenDangerButton: NSButton {
 // MARK: - Level pill
 
 @MainActor
-final class KeenLevelPill: NSView {
+final class SchedLevelPill: NSView {
     private let textLabel = NSTextField(labelWithString: "")
 
     init(level: InterventionLevel) {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 10
-        layer?.backgroundColor = KeenDesign.levelColor(level).withAlphaComponent(0.18).cgColor
-        textLabel.font = KeenDesign.caption(10)
+        layer?.backgroundColor = SchedDesign.levelColor(level).withAlphaComponent(0.18).cgColor
+        textLabel.font = SchedDesign.caption(10)
         addSubview(textLabel)
         textLabel.translatesAutoresizingMaskIntoConstraints = false
         translatesAutoresizingMaskIntoConstraints = false
@@ -282,8 +282,8 @@ final class KeenLevelPill: NSView {
 
     func update(level: InterventionLevel) {
         textLabel.stringValue = level.label
-        KeenDesign.label(textLabel, color: KeenDesign.levelColor(level))
-        layer?.backgroundColor = KeenDesign.levelColor(level).withAlphaComponent(0.18).cgColor
+        SchedDesign.label(textLabel, color: SchedDesign.levelColor(level))
+        layer?.backgroundColor = SchedDesign.levelColor(level).withAlphaComponent(0.18).cgColor
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
@@ -292,53 +292,58 @@ final class KeenLevelPill: NSView {
 // MARK: - Alarm card (glass)
 
 @MainActor
-protocol KeenAlarmCardDelegate: AnyObject {
+protocol SchedAlarmCardDelegate: AnyObject {
     func alarmCardSelected(_ id: UUID)
+    func alarmCardEdit(_ id: UUID)
+    func alarmCardMoveLater(_ id: UUID, minutes: Int)
+    func alarmCardDuplicate(_ id: UUID)
+    func alarmCardDisable(_ id: UUID)
+    func alarmCardDelete(_ id: UUID)
 }
 
 @MainActor
-final class KeenAlarmCard: NSControl {
-    weak var cardDelegate: KeenAlarmCardDelegate?
+final class SchedAlarmCard: NSControl {
+    weak var cardDelegate: SchedAlarmCardDelegate?
     let alarmID: UUID
-    private let glass: KeenGlassSurface
+    private let glass: SchedGlassSurface
     private let timeLabel: NSTextField
     private let periodLabel: NSTextField
     private let titleLabel: NSTextField
     private let noteLabel: NSTextField
     private let actionIcon = NSImageView()
     private let stripe = NSView()
-    private let levelPill: KeenLevelPill
+    private let levelPill: SchedLevelPill
     private var isSelected = false
     private var currentLevel: InterventionLevel
 
-    init(alarm: KeenAlarm, selected: Bool) {
+    init(alarm: SchedAlarm, selected: Bool) {
         alarmID = alarm.id
         currentLevel = alarm.level
-        levelPill = KeenLevelPill(level: alarm.level)
-        glass = KeenGlassSurface(
-            cornerRadius: KeenDesign.cardRadius,
+        levelPill = SchedLevelPill(level: alarm.level)
+        glass = SchedGlassSurface(
+            cornerRadius: SchedDesign.cardRadius,
             tint: Self.cardTint(level: alarm.level, selected: selected),
             interactive: true
         )
         let timeParts = SchedTimeFormat.timeAndPeriod(from: alarm.fireAt)
         timeLabel = NSTextField(labelWithString: timeParts.time)
-        timeLabel.font = KeenDesign.mono(22)
-        KeenDesign.label(timeLabel)
+        timeLabel.font = SchedDesign.mono(22)
+        SchedDesign.label(timeLabel)
 
         periodLabel = NSTextField(labelWithString: Self.contextText(for: alarm, period: timeParts.period))
-        periodLabel.font = KeenDesign.caption(10)
-        KeenDesign.label(periodLabel, color: KeenDesign.inkMuted)
+        periodLabel.font = SchedDesign.caption(10)
+        SchedDesign.label(periodLabel, color: SchedDesign.inkMuted)
 
         titleLabel = NSTextField(labelWithString: alarm.title)
-        titleLabel.font = KeenDesign.title(16)
+        titleLabel.font = SchedDesign.title(16)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         titleLabel.toolTip = alarm.title
-        KeenDesign.label(titleLabel)
+        SchedDesign.label(titleLabel)
 
         noteLabel = NSTextField(labelWithString: Self.noteText(alarm))
-        noteLabel.font = KeenDesign.body(12)
-        KeenDesign.label(noteLabel, color: KeenDesign.inkMuted)
+        noteLabel.font = SchedDesign.body(12)
+        SchedDesign.label(noteLabel, color: SchedDesign.inkMuted)
         noteLabel.lineBreakMode = .byTruncatingTail
 
         super.init(frame: .zero)
@@ -357,7 +362,7 @@ final class KeenAlarmCard: NSControl {
 
         let inner = glass.innerContentView
         stripe.wantsLayer = true
-        stripe.layer?.backgroundColor = KeenDesign.levelColor(alarm.level).cgColor
+        stripe.layer?.backgroundColor = SchedDesign.levelColor(alarm.level).cgColor
         stripe.layer?.cornerRadius = 2
         stripe.translatesAutoresizingMaskIntoConstraints = false
 
@@ -394,7 +399,7 @@ final class KeenAlarmCard: NSControl {
         applySelection(on)
     }
 
-    func refresh(alarm: KeenAlarm, selected: Bool) {
+    func refresh(alarm: SchedAlarm, selected: Bool) {
         let timeParts = SchedTimeFormat.timeAndPeriod(from: alarm.fireAt)
         timeLabel.stringValue = timeParts.time
         periodLabel.stringValue = Self.contextText(for: alarm, period: timeParts.period)
@@ -404,7 +409,7 @@ final class KeenAlarmCard: NSControl {
         noteLabel.toolTip = alarm.note.isEmpty ? nil : alarm.note
         configureActionIcon(alarm.action)
         currentLevel = alarm.level
-        stripe.layer?.backgroundColor = KeenDesign.levelColor(alarm.level).cgColor
+        stripe.layer?.backgroundColor = SchedDesign.levelColor(alarm.level).cgColor
         levelPill.update(level: alarm.level)
         isSelected = selected
         applySelection(selected)
@@ -413,31 +418,57 @@ final class KeenAlarmCard: NSControl {
     private func applySelection(_ on: Bool) {
         glass.updateTint(Self.cardTint(level: currentLevel, selected: on), selected: on)
         layer?.borderWidth = on ? 2 : 0
-        layer?.borderColor = on ? KeenDesign.accent.withAlphaComponent(0.55).cgColor : nil
-        layer?.cornerRadius = KeenDesign.cardRadius
+        layer?.borderColor = on ? SchedDesign.accent.withAlphaComponent(0.55).cgColor : nil
+        layer?.cornerRadius = SchedDesign.cardRadius
         alphaValue = 1
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
-    override func mouseDown(with event: NSEvent) { cardDelegate?.alarmCardSelected(alarmID) }
+    override func mouseDown(with event: NSEvent) {
+        cardDelegate?.alarmCardSelected(alarmID)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(contextItem("Edit Reminder", symbol: "slider.horizontal.3", action: #selector(contextEdit)))
+        menu.addItem(contextItem("Move 5 Minutes Later", symbol: "clock.arrow.circlepath", action: #selector(contextMoveLater)))
+        menu.addItem(contextItem("Duplicate", symbol: "plus.square.on.square", action: #selector(contextDuplicate)))
+        menu.addItem(contextItem("Disable", symbol: "pause.circle", action: #selector(contextDisable)))
+        menu.addItem(.separator())
+        menu.addItem(contextItem("Delete", symbol: "trash", action: #selector(contextDelete)))
+        return menu
+    }
+
+    private func contextItem(_ title: String, symbol: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        return item
+    }
+
+    @objc private func contextEdit() { cardDelegate?.alarmCardEdit(alarmID) }
+    @objc private func contextMoveLater() { cardDelegate?.alarmCardMoveLater(alarmID, minutes: 5) }
+    @objc private func contextDuplicate() { cardDelegate?.alarmCardDuplicate(alarmID) }
+    @objc private func contextDisable() { cardDelegate?.alarmCardDisable(alarmID) }
+    @objc private func contextDelete() { cardDelegate?.alarmCardDelete(alarmID) }
 
     private static func cardTint(level: InterventionLevel, selected: Bool) -> NSColor {
-        let color = KeenDesign.levelColor(level)
+        let color = SchedDesign.levelColor(level)
         return color.withAlphaComponent(selected ? 0.28 : 0.13)
     }
 
-    private static func noteText(_ alarm: KeenAlarm) -> String {
+    private static func noteText(_ alarm: SchedAlarm) -> String {
         if !alarm.note.isEmpty { return alarm.note }
         return alarm.repeatDaily ? "A recurring moment for future you." : "A one-time nudge with a clear next step."
     }
 
-    private static func contextText(for alarm: KeenAlarm, period: String) -> String {
+    private static func contextText(for alarm: SchedAlarm, period: String) -> String {
         let date = SchedTimeFormat.dateContext(from: alarm.fireAt)
         return period.isEmpty ? date : "\(date) · \(period)"
     }
 
-    private func configureActionIcon(_ action: KeenAction) {
+    private func configureActionIcon(_ action: SchedAction) {
         let symbol: String
         let description: String
         let configured = !action.payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -459,7 +490,7 @@ final class KeenAlarmCard: NSControl {
             description = "Legacy action is disabled"
         }
         actionIcon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
-        actionIcon.contentTintColor = action == .none ? KeenDesign.inkFaint : (configured ? KeenDesign.accent : .systemRed)
+        actionIcon.contentTintColor = action == .none ? SchedDesign.inkFaint : (configured ? SchedDesign.accent : .systemRed)
         actionIcon.toolTip = description
     }
 }
@@ -467,13 +498,13 @@ final class KeenAlarmCard: NSControl {
 // MARK: - Hero
 
 @MainActor
-final class KeenHeroStrip: NSView {
-    private let glass: KeenGlassSurface
+final class SchedHeroStrip: NSView {
+    private let glass: SchedGlassSurface
     private let detail = NSTextField(labelWithString: "—")
     private let countdown = NSTextField(labelWithString: "")
 
     init() {
-        glass = KeenGlassSurface(cornerRadius: KeenDesign.cardRadius, tint: KeenDesign.bubbleAccent, interactive: false)
+        glass = SchedGlassSurface(cornerRadius: SchedDesign.cardRadius, tint: SchedDesign.bubbleAccent, interactive: false)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 72).isActive = true
@@ -489,14 +520,14 @@ final class KeenHeroStrip: NSView {
         let inner = glass.innerContentView
 
         let headline = NSTextField(labelWithString: "Up next")
-        headline.font = KeenDesign.section(10)
-        KeenDesign.label(headline, color: KeenDesign.accent)
-        detail.font = KeenDesign.title(18)
+        headline.font = SchedDesign.section(10)
+        SchedDesign.label(headline, color: SchedDesign.accent)
+        detail.font = SchedDesign.title(18)
         detail.lineBreakMode = .byTruncatingTail
         detail.maximumNumberOfLines = 1
-        KeenDesign.label(detail)
-        countdown.font = KeenDesign.mono(26)
-        KeenDesign.label(countdown, color: KeenDesign.accent)
+        SchedDesign.label(detail)
+        countdown.font = SchedDesign.mono(26)
+        SchedDesign.label(countdown, color: SchedDesign.accent)
 
         [headline, detail, countdown].forEach { inner.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
@@ -529,27 +560,27 @@ final class KeenHeroStrip: NSView {
 // MARK: - Nav
 
 @MainActor
-final class KeenNavItem: NSControl {
-    let section: KeenSection
+final class SchedNavItem: NSControl {
+    let section: SchedSection
     private let icon = NSImageView()
     private let selection = NSView()
 
-    init(section: KeenSection) {
+    init(section: SchedSection) {
         self.section = section
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: KeenDesign.navItemWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: KeenDesign.navItemHeight).isActive = true
+        widthAnchor.constraint(equalToConstant: SchedDesign.navItemWidth).isActive = true
+        heightAnchor.constraint(equalToConstant: SchedDesign.navItemHeight).isActive = true
         setContentCompressionResistancePriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .vertical)
 
         selection.wantsLayer = true
         selection.layer?.cornerRadius = 2
-        selection.layer?.backgroundColor = KeenDesign.accent.cgColor
+        selection.layer?.backgroundColor = SchedDesign.accent.cgColor
         selection.isHidden = true
 
         icon.image = NSImage(systemSymbolName: section.icon, accessibilityDescription: nil)
-        icon.contentTintColor = KeenDesign.inkMuted
+        icon.contentTintColor = SchedDesign.inkMuted
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         toolTip = section.rawValue
         setAccessibilityLabel(section.rawValue)
@@ -569,7 +600,7 @@ final class KeenNavItem: NSControl {
 
     func setSelected(_ on: Bool) {
         selection.isHidden = !on
-        icon.contentTintColor = on ? KeenDesign.accent : KeenDesign.inkMuted
+        icon.contentTintColor = on ? SchedDesign.accent : SchedDesign.inkMuted
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
@@ -577,7 +608,7 @@ final class KeenNavItem: NSControl {
     override func mouseDown(with event: NSEvent) { sendAction(action, to: target) }
 }
 
-enum KeenSection: String, CaseIterable {
+enum SchedSection: String, CaseIterable {
     case schedule = "Schedule"
     case calendar = "Calendar"
     case timer = "Timer"
@@ -608,10 +639,10 @@ enum KeenSection: String, CaseIterable {
 // MARK: - Form helpers
 
 @MainActor
-func keenFieldLabel(_ text: String) -> NSTextField {
+func schedFieldLabel(_ text: String) -> NSTextField {
     let l = NSTextField(labelWithString: text)
-    l.font = KeenDesign.body(12)
-    KeenDesign.label(l, color: KeenDesign.inkMuted)
+    l.font = SchedDesign.body(12)
+    SchedDesign.label(l, color: SchedDesign.inkMuted)
     return l
 }
 
@@ -631,21 +662,21 @@ func schedConfigureScroll(_ scroll: NSScrollView) {
 @MainActor
 func schedStyleSelector(_ control: NSControl) {
     control.controlSize = .large
-    control.font = KeenDesign.body(13)
+    control.font = SchedDesign.body(13)
     control.translatesAutoresizingMaskIntoConstraints = false
     control.heightAnchor.constraint(greaterThanOrEqualToConstant: 32).isActive = true
 }
 
 @MainActor
-final class KeenGlassField: NSView {
+final class SchedGlassField: NSView {
     let field: NSTextField
-    private let glass: KeenGlassSurface
+    private let glass: SchedGlassSurface
 
     init(placeholder: String = "") {
-        glass = KeenGlassSurface(cornerRadius: 10, tint: KeenDesign.fieldTint, interactive: true)
+        glass = SchedGlassSurface(cornerRadius: 10, tint: SchedDesign.fieldTint, interactive: true)
         field = NSTextField()
         field.placeholderString = placeholder
-        field.font = KeenDesign.body(13)
+        field.font = SchedDesign.body(13)
         field.isBezeled = false
         field.isBordered = false
         field.drawsBackground = false
@@ -671,10 +702,10 @@ final class KeenGlassField: NSView {
 }
 
 @MainActor
-func keenFormField(placeholder: String = "") -> NSTextField {
+func schedFormField(placeholder: String = "") -> NSTextField {
     let f = NSTextField()
     f.placeholderString = placeholder
-    f.font = KeenDesign.body(13)
+    f.font = SchedDesign.body(13)
     f.isBezeled = false
     f.isBordered = false
     f.drawsBackground = false
@@ -685,15 +716,15 @@ func keenFormField(placeholder: String = "") -> NSTextField {
 }
 
 @MainActor
-func keenGlassField(placeholder: String = "") -> KeenGlassField {
-    KeenGlassField(placeholder: placeholder)
+func schedGlassField(placeholder: String = "") -> SchedGlassField {
+    SchedGlassField(placeholder: placeholder)
 }
 
 // MARK: - Gentle toast (interventions)
 
 @MainActor
-final class KeenGentleToast: NSView {
-    private let actionTarget: KeenToastTarget
+final class SchedGentleToast: NSView {
+    private let actionTarget: SchedToastTarget
 
     init(
         title: String,
@@ -702,11 +733,11 @@ final class KeenGentleToast: NSView {
         onSnooze: @escaping (Int) -> Void,
         onAction: (() -> Void)? = nil
     ) {
-        actionTarget = KeenToastTarget(done: onDone, snooze: onSnooze, run: onAction)
+        actionTarget = SchedToastTarget(done: onDone, snooze: onSnooze, run: onAction)
         super.init(frame: .zero)
-        let glass = KeenGlassSurface(
+        let glass = SchedGlassSurface(
             cornerRadius: 18,
-            tint: KeenDesign.levelColor(.gentle).withAlphaComponent(0.16),
+            tint: SchedDesign.levelColor(.gentle).withAlphaComponent(0.16),
             interactive: false,
             stableWhenInactive: true
         )
@@ -722,33 +753,33 @@ final class KeenGentleToast: NSView {
 
         let stripe = NSView()
         stripe.wantsLayer = true
-        stripe.layer?.backgroundColor = KeenDesign.levelColor(.gentle).cgColor
+        stripe.layer?.backgroundColor = SchedDesign.levelColor(.gentle).cgColor
         stripe.layer?.cornerRadius = 2
 
         let symbol = NSImageView(image: NSImage(systemSymbolName: "bell.badge.fill", accessibilityDescription: "Reminder") ?? NSImage())
-        symbol.contentTintColor = KeenDesign.accent
+        symbol.contentTintColor = SchedDesign.accent
         symbol.toolTip = "Drag the card to move it"
 
         let eyebrow = NSTextField(labelWithString: "REMINDER  ·  \(SchedTimeFormat.string(from: .now))")
-        eyebrow.font = KeenDesign.section(10)
-        KeenDesign.label(eyebrow, color: KeenDesign.accent)
+        eyebrow.font = SchedDesign.section(10)
+        SchedDesign.label(eyebrow, color: SchedDesign.accent)
 
         let t = NSTextField(labelWithString: title)
-        t.font = KeenDesign.title(16)
-        KeenDesign.label(t)
+        t.font = SchedDesign.title(16)
+        SchedDesign.label(t)
         let n = NSTextField(wrappingLabelWithString: note.isEmpty ? "Time to switch." : note)
-        n.font = KeenDesign.body(12)
-        KeenDesign.label(n, color: KeenDesign.inkMuted)
+        n.font = SchedDesign.body(12)
+        SchedDesign.label(n, color: SchedDesign.inkMuted)
         n.maximumNumberOfLines = 2
 
-        let done = KeenPrimaryButton("Done", action: #selector(KeenToastTarget.done), target: actionTarget)
-        let snooze = KeenSnoozeButton(
+        let done = SchedPrimaryButton("Done", action: #selector(SchedToastTarget.done), target: actionTarget)
+        let snooze = SchedSnoozeButton(
             defaultMinutes: ScheduleStore.shared.store.snoozeMinutes,
             action: onSnooze
         )
         var buttons: [NSView] = [snooze]
         if onAction != nil {
-            buttons.append(KeenGhostButton("Run action", action: #selector(KeenToastTarget.run), target: actionTarget))
+            buttons.append(SchedGhostButton("Run action", action: #selector(SchedToastTarget.run), target: actionTarget))
         }
         buttons.append(done)
         let buttonRow = NSStackView(views: buttons)
@@ -784,7 +815,7 @@ final class KeenGentleToast: NSView {
 }
 
 @MainActor
-final class KeenToastTarget: NSObject {
+final class SchedToastTarget: NSObject {
     private let doneHandler: () -> Void
     private let runHandler: (() -> Void)?
 
@@ -798,7 +829,7 @@ final class KeenToastTarget: NSObject {
 }
 
 @MainActor
-final class KeenSnoozeButton: NSPopUpButton {
+final class SchedSnoozeButton: NSPopUpButton {
     private let handler: (Int) -> Void
 
     init(defaultMinutes: Int, action: @escaping (Int) -> Void) {
@@ -806,7 +837,7 @@ final class KeenSnoozeButton: NSPopUpButton {
         super.init(frame: .zero, pullsDown: false)
         bezelStyle = .rounded
         controlSize = .large
-        font = KeenDesign.caption(12)
+        font = SchedDesign.caption(12)
         focusRingType = .none
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 34).isActive = true

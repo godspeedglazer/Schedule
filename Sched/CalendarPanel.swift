@@ -6,7 +6,7 @@ final class CalendarPanelController: NSViewController {
     private let monthCalendar = SchedMonthCalendarView()
     private let selectedDateLabel = NSTextField(labelWithString: "")
     private let agendaStack = NSStackView()
-    private let accessButton = KeenPrimaryButton("Show Calendar Events", action: #selector(requestCalendarAccess), target: nil)
+    private let accessButton = SchedPrimaryButton("Show Calendar Events", action: #selector(requestCalendarAccess), target: nil)
     private var storeObserver: UUID?
 
     override func loadView() {
@@ -15,13 +15,13 @@ final class CalendarPanelController: NSViewController {
         view.layer?.backgroundColor = .clear
 
         let title = NSTextField(labelWithString: "Calendar")
-        title.font = KeenDesign.display(28)
-        KeenDesign.label(title)
+        title.font = SchedDesign.display(28)
+        SchedDesign.label(title)
         let subtitle = NSTextField(labelWithString: "Your reminders and Mac calendar, in one place.")
-        subtitle.font = KeenDesign.body(14)
-        KeenDesign.label(subtitle, color: KeenDesign.inkMuted)
+        subtitle.font = SchedDesign.body(14)
+        SchedDesign.label(subtitle, color: SchedDesign.inkMuted)
 
-        let calendarGlass = KeenGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.14))
+        let calendarGlass = SchedGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.14))
         monthCalendar.onSelection = { [weak self] _ in self?.reloadAgenda() }
         monthCalendar.translatesAutoresizingMaskIntoConstraints = false
         calendarGlass.innerContentView.addSubview(monthCalendar)
@@ -32,8 +32,8 @@ final class CalendarPanelController: NSViewController {
             monthCalendar.heightAnchor.constraint(equalToConstant: 304),
         ])
 
-        let today = KeenGhostButton("Today", action: #selector(goToToday), target: self)
-        let openPlan = KeenGhostButton("Open Plan", action: #selector(openPlan), target: self)
+        let today = SchedGhostButton("Today", action: #selector(goToToday), target: self)
+        let openPlan = SchedGhostButton("Open Plan", action: #selector(openPlan), target: self)
         let calendarActions = NSStackView(views: [today, openPlan])
         calendarActions.orientation = .horizontal
         calendarActions.spacing = 8
@@ -45,15 +45,15 @@ final class CalendarPanelController: NSViewController {
             calendarActions.topAnchor.constraint(equalTo: monthCalendar.bottomAnchor, constant: 16),
         ])
 
-        let agendaGlass = KeenGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.14))
-        selectedDateLabel.font = KeenDesign.title(18)
-        KeenDesign.label(selectedDateLabel)
+        let agendaGlass = SchedGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.14))
+        selectedDateLabel.font = SchedDesign.title(18)
+        SchedDesign.label(selectedDateLabel)
         agendaStack.orientation = .vertical
         agendaStack.alignment = .leading
         agendaStack.spacing = 8
         agendaStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let document = KeenFlippedView()
+        let document = SchedFlippedView()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(agendaStack)
         NSLayoutConstraint.activate([
@@ -155,8 +155,9 @@ final class CalendarPanelController: NSViewController {
                 time: SchedTimeFormat.string(from: occurrence),
                 title: alarm.title,
                 detail: alarm.note.isEmpty ? (alarm.repeatDaily ? "Daily Sched reminder" : "Sched reminder") : alarm.note,
-                color: KeenDesign.levelColor(alarm.level),
-                symbol: "bell.fill"
+                color: SchedDesign.levelColor(alarm.level),
+                symbol: "bell.fill",
+                alarmID: alarm.id
             )
         }
 
@@ -167,8 +168,9 @@ final class CalendarPanelController: NSViewController {
                 time: event.isAllDay ? "All day" : SchedTimeFormat.string(from: event.startDate),
                 title: event.title ?? "Untitled event",
                 detail: event.calendar.title,
-                color: NSColor(cgColor: event.calendar.cgColor) ?? KeenDesign.accent,
-                symbol: "calendar"
+                color: NSColor(cgColor: event.calendar.cgColor) ?? SchedDesign.accent,
+                symbol: "calendar",
+                alarmID: nil
             )
         }
 
@@ -189,7 +191,8 @@ final class CalendarPanelController: NSViewController {
                 title: entry.title,
                 detail: entry.detail,
                 color: entry.color,
-                symbol: entry.symbol
+                symbol: entry.symbol,
+                alarmID: entry.alarmID
             ))
         }
 
@@ -198,7 +201,7 @@ final class CalendarPanelController: NSViewController {
         }
     }
 
-    private func reminderOccurrence(for alarm: KeenAlarm, on date: Date) -> Date? {
+    private func reminderOccurrence(for alarm: SchedAlarm, on date: Date) -> Date? {
         let calendar = Calendar.autoupdatingCurrent
         if !alarm.repeatDaily {
             return calendar.isDate(alarm.fireAt, inSameDayAs: date) ? alarm.fireAt : nil
@@ -224,6 +227,7 @@ final class CalendarPanelController: NSViewController {
         let detail: String
         let color: NSColor
         let symbol: String
+        let alarmID: UUID?
     }
 
     /// Width constraints are only valid after the row and stack share a view hierarchy.
@@ -232,27 +236,34 @@ final class CalendarPanelController: NSViewController {
         row.widthAnchor.constraint(equalTo: agendaStack.widthAnchor).isActive = true
     }
 
-    private func agendaRow(time: String, title: String, detail: String, color: NSColor, symbol: String) -> NSView {
-        let row = KeenGlassSurface(cornerRadius: 12, tint: color.withAlphaComponent(0.10), interactive: false)
+    private func agendaRow(time: String, title: String, detail: String, color: NSColor, symbol: String, alarmID: UUID?) -> NSView {
+        let row = SchedGlassSurface(cornerRadius: 12, tint: color.withAlphaComponent(0.10), interactive: false)
         row.translatesAutoresizingMaskIntoConstraints = false
         row.heightAnchor.constraint(greaterThanOrEqualToConstant: 66).isActive = true
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
         icon.contentTintColor = color
         let timeLabel = NSTextField(labelWithString: time)
-        timeLabel.font = KeenDesign.mono(11)
-        KeenDesign.label(timeLabel, color: KeenDesign.inkMuted)
+        timeLabel.font = SchedDesign.mono(11)
+        SchedDesign.label(timeLabel, color: SchedDesign.inkMuted)
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = KeenDesign.title(14)
+        titleLabel.font = SchedDesign.title(14)
         titleLabel.lineBreakMode = .byTruncatingTail
-        KeenDesign.label(titleLabel)
+        titleLabel.maximumNumberOfLines = 1
+        titleLabel.toolTip = title
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        SchedDesign.label(titleLabel)
         let detailLabel = NSTextField(labelWithString: detail)
-        detailLabel.font = KeenDesign.body(11)
+        detailLabel.font = SchedDesign.body(11)
         detailLabel.lineBreakMode = .byTruncatingTail
-        KeenDesign.label(detailLabel, color: KeenDesign.inkMuted)
+        detailLabel.maximumNumberOfLines = 1
+        detailLabel.toolTip = detail
+        detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        SchedDesign.label(detailLabel, color: SchedDesign.inkMuted)
         let text = NSStackView(views: [titleLabel, detailLabel])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
+        text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let content = NSStackView(views: [icon, timeLabel, text])
         content.orientation = .horizontal
         content.alignment = .centerY
@@ -267,18 +278,73 @@ final class CalendarPanelController: NSViewController {
             icon.widthAnchor.constraint(equalToConstant: 16),
             timeLabel.widthAnchor.constraint(equalToConstant: 64),
         ])
+
+        if let alarmID {
+            let menu = NSMenu()
+            menu.addItem(agendaAction("Edit Reminder", symbol: "slider.horizontal.3", alarmID: alarmID, action: #selector(editAgendaReminder(_:))))
+            menu.addItem(agendaAction("Snooze 5 Minutes", symbol: "clock.arrow.circlepath", alarmID: alarmID, action: #selector(snoozeAgendaReminder(_:))))
+            menu.addItem(agendaAction("Disable", symbol: "pause.circle", alarmID: alarmID, action: #selector(disableAgendaReminder(_:))))
+            menu.addItem(.separator())
+            menu.addItem(agendaAction("Delete", symbol: "trash", alarmID: alarmID, action: #selector(deleteAgendaReminder(_:))))
+            row.menu = menu
+        }
         return row
+    }
+
+    private func agendaAction(_ title: String, symbol: String, alarmID: UUID, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.representedObject = alarmID.uuidString
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        return item
+    }
+
+    private func agendaAlarm(from sender: NSMenuItem) -> SchedAlarm? {
+        guard let raw = sender.representedObject as? String, let id = UUID(uuidString: raw) else { return nil }
+        return ScheduleStore.shared.store.alarms.first { $0.id == id }
+    }
+
+    @objc private func editAgendaReminder(_ sender: NSMenuItem) {
+        guard let alarm = agendaAlarm(from: sender) else { return }
+        MainWindowController.shared.showAlarm(alarm.id)
+    }
+
+    @objc private func snoozeAgendaReminder(_ sender: NSMenuItem) {
+        guard var alarm = agendaAlarm(from: sender) else { return }
+        if alarm.repeatDaily {
+            alarm.id = UUID()
+            alarm.repeatDaily = false
+        }
+        alarm.fireAt = Date().addingTimeInterval(5 * 60)
+        alarm.enabled = true
+        alarm.pausedRemainingSeconds = nil
+        ScheduleStore.shared.upsert(alarm)
+    }
+
+    @objc private func disableAgendaReminder(_ sender: NSMenuItem) {
+        guard var alarm = agendaAlarm(from: sender) else { return }
+        alarm.enabled = false
+        AlarmAudioService.shared.stop(alarmID: alarm.id)
+        InterventionManager.shared.dismiss(alarmID: alarm.id)
+        ScheduleStore.shared.upsert(alarm)
+    }
+
+    @objc private func deleteAgendaReminder(_ sender: NSMenuItem) {
+        guard let alarm = agendaAlarm(from: sender) else { return }
+        AlarmAudioService.shared.stop(alarmID: alarm.id)
+        InterventionManager.shared.dismiss(alarmID: alarm.id)
+        ScheduleStore.shared.remove(id: alarm.id)
     }
 
     private func helper(_ text: String) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
-        label.font = KeenDesign.body(12)
-        KeenDesign.label(label, color: KeenDesign.inkMuted)
+        label.font = SchedDesign.body(12)
+        SchedDesign.label(label, color: SchedDesign.inkMuted)
         return label
     }
 }
 
-/// A native AppKit month grid sized for Sched's fixed window. `NSDatePicker`'s
+/// A native AppKit month grid sized for Sched's calendar panel. `NSDatePicker`'s
 /// calendar style has a fixed intrinsic size, which caused the tiny floating
 /// control that this view replaces.
 @MainActor
@@ -296,8 +362,8 @@ private final class SchedMonthCalendarView: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
 
-        monthLabel.font = KeenDesign.title(17)
-        KeenDesign.label(monthLabel)
+        monthLabel.font = SchedDesign.title(17)
+        SchedDesign.label(monthLabel)
         let previous = navigationButton(symbol: "chevron.left", action: #selector(previousMonth))
         let next = navigationButton(symbol: "chevron.right", action: #selector(nextMonth))
         let spacer = NSView()
@@ -319,6 +385,7 @@ private final class SchedMonthCalendarView: NSView {
             row.orientation = .horizontal
             row.distribution = .fillEqually
             row.spacing = 4
+            row.translatesAutoresizingMaskIntoConstraints = false
             for _ in 0..<7 {
                 let button = SchedDayButton()
                 button.target = self
@@ -328,6 +395,10 @@ private final class SchedMonthCalendarView: NSView {
                 row.addArrangedSubview(button)
             }
             weeks.addArrangedSubview(row)
+            // A vertical NSStackView does not automatically make its arranged rows
+            // as wide as itself. Without this, the day grid shrinks to the buttons'
+            // intrinsic widths while the weekday header spans the full panel.
+            row.widthAnchor.constraint(equalTo: weeks.widthAnchor).isActive = true
         }
 
         let stack = NSStackView(views: [header, weekdayRow, weeks])
@@ -362,7 +433,7 @@ private final class SchedMonthCalendarView: NSView {
             action: action
         )
         button.isBordered = false
-        button.contentTintColor = KeenDesign.inkMuted
+        button.contentTintColor = SchedDesign.inkMuted
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
         button.heightAnchor.constraint(equalToConstant: 28).isActive = true
         return button
@@ -399,8 +470,8 @@ private final class SchedMonthCalendarView: NSView {
         for index in 0..<7 {
             let label = NSTextField(labelWithString: symbols[(index + offset) % 7])
             label.alignment = .center
-            label.font = KeenDesign.caption(10)
-            KeenDesign.label(label, color: KeenDesign.inkMuted)
+            label.font = SchedDesign.caption(10)
+            SchedDesign.label(label, color: SchedDesign.inkMuted)
             weekdayRow.addArrangedSubview(label)
         }
 
@@ -436,16 +507,16 @@ private final class SchedDayButton: NSButton {
         focusRingType = .none
         wantsLayer = true
         layer?.cornerRadius = 8
-        font = KeenDesign.body(12)
+        font = SchedDesign.body(12)
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
     func refreshStyle() {
-        layer?.backgroundColor = isSelectedDate ? KeenDesign.accent.cgColor : NSColor.clear.cgColor
+        layer?.backgroundColor = isSelectedDate ? SchedDesign.accent.cgColor : NSColor.clear.cgColor
         layer?.borderWidth = isToday && !isSelectedDate ? 1.5 : 0
-        layer?.borderColor = KeenDesign.accent.cgColor
-        contentTintColor = isSelectedDate ? .white : (isInVisibleMonth ? KeenDesign.ink : KeenDesign.inkFaint)
+        layer?.borderColor = SchedDesign.accent.cgColor
+        contentTintColor = isSelectedDate ? .white : (isInVisibleMonth ? SchedDesign.ink : SchedDesign.inkFaint)
         alphaValue = isInVisibleMonth ? 1 : 0.55
     }
 }

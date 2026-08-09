@@ -182,7 +182,7 @@ enum RunningApps {
 }
 
 @MainActor
-func keenAppPopup() -> NSPopUpButton {
+func schedAppPopup() -> NSPopUpButton {
     let popup = NSPopUpButton()
     popup.translatesAutoresizingMaskIntoConstraints = false
     popup.heightAnchor.constraint(equalToConstant: 32).isActive = true

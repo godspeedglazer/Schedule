@@ -1,6 +1,6 @@
 import Foundation
 
-enum KeenTextLimits {
+enum SchedTextLimits {
     static let title = 120
     static let note = 500
     static let action = 300
@@ -20,6 +20,41 @@ enum HourStyle: String, Codable, CaseIterable {
         case .system: "System"
         case .twelveHour: "12-hour"
         case .twentyFourHour: "24-hour"
+        }
+    }
+}
+
+enum AlarmSound: Codable, Equatable, Hashable {
+    case none
+    case system(name: String)
+    case imported(fileName: String)
+    case externalFile(path: String)
+
+    static let defaultSystem: AlarmSound = .system(name: "Glass")
+
+    var displayName: String {
+        switch self {
+        case .none:
+            return "None"
+        case .system(let name):
+            return name
+        case .imported(let fileName):
+            return URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent
+        case .externalFile(let path):
+            return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .none:
+            return "Silent"
+        case .system:
+            return "macOS sound"
+        case .imported:
+            return "Managed by Sched"
+        case .externalFile:
+            return "Linked file"
         }
     }
 }
@@ -48,7 +83,7 @@ enum InterventionLevel: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum KeenActionKind: String, Codable, CaseIterable {
+enum SchedActionKind: String, Codable, CaseIterable {
     case none
     case shortcut
     case url
@@ -57,7 +92,7 @@ enum KeenActionKind: String, Codable, CaseIterable {
 
     /// Actions intentionally exposed in the product UI. `shell` remains only
     /// for decoding older schedule files and is never executed.
-    static let userFacingCases: [KeenActionKind] = [.none, .shortcut, .url, .quitApp]
+    static let userFacingCases: [SchedActionKind] = [.none, .shortcut, .url, .quitApp]
 
     var displayName: String {
         switch self {
@@ -70,14 +105,14 @@ enum KeenActionKind: String, Codable, CaseIterable {
     }
 }
 
-enum KeenAction: Codable, Equatable {
+enum SchedAction: Codable, Equatable {
     case none
     case runShortcut(name: String)
     case openURL(url: String)
     case shell(command: String)
     case quitApp(name: String)
 
-    var kind: KeenActionKind {
+    var kind: SchedActionKind {
         switch self {
         case .none: .none
         case .runShortcut: .shortcut
@@ -97,7 +132,7 @@ enum KeenAction: Codable, Equatable {
         }
     }
 
-    static func from(kind: KeenActionKind, payload: String) -> KeenAction {
+    static func from(kind: SchedActionKind, payload: String) -> SchedAction {
         switch kind {
         case .none: .none
         case .shortcut: .runShortcut(name: payload)
@@ -108,14 +143,14 @@ enum KeenAction: Codable, Equatable {
     }
 }
 
-struct KeenAppWatch: Codable, Identifiable, Equatable {
+struct SchedAppWatch: Codable, Identifiable, Equatable {
     var id: UUID
     var appName: String
     var bundleId: String?
     var executablePath: String?
     var maxMinutes: Int
     var level: InterventionLevel
-    var action: KeenAction
+    var action: SchedAction
     var enabled: Bool
 
     init(
@@ -125,7 +160,7 @@ struct KeenAppWatch: Codable, Identifiable, Equatable {
         executablePath: String? = nil,
         maxMinutes: Int = 45,
         level: InterventionLevel = .gentle,
-        action: KeenAction = .none,
+        action: SchedAction = .none,
         enabled: Bool = true
     ) {
         self.id = id
@@ -150,7 +185,7 @@ struct KeenAppWatch: Codable, Identifiable, Equatable {
         executablePath = try c.decodeIfPresent(String.self, forKey: .executablePath)
         maxMinutes = try c.decode(Int.self, forKey: .maxMinutes)
         level = try c.decode(InterventionLevel.self, forKey: .level)
-        action = try c.decode(KeenAction.self, forKey: .action)
+        action = try c.decode(SchedAction.self, forKey: .action)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 
@@ -169,8 +204,8 @@ struct KeenAppWatch: Codable, Identifiable, Equatable {
             || (frontPath?.lowercased().contains(needle) ?? false)
     }
 
-    func interventionAlarm(frontName: String) -> KeenAlarm {
-        KeenAlarm(
+    func interventionAlarm(frontName: String) -> SchedAlarm {
+        SchedAlarm(
             title: "\(frontName) — time's up",
             note: "You've had this app open for \(maxMinutes)+ minutes.",
             fireAt: .now,
@@ -180,13 +215,14 @@ struct KeenAppWatch: Codable, Identifiable, Equatable {
     }
 }
 
-struct KeenAlarm: Codable, Identifiable, Equatable {
+struct SchedAlarm: Codable, Identifiable, Equatable {
     var id: UUID
     var title: String
     var note: String
     var fireAt: Date
     var level: InterventionLevel
-    var action: KeenAction
+    var action: SchedAction
+    var sound: AlarmSound?
     var repeatDaily: Bool
     var enabled: Bool
     var isTimer: Bool
@@ -198,7 +234,8 @@ struct KeenAlarm: Codable, Identifiable, Equatable {
         note: String = "",
         fireAt: Date,
         level: InterventionLevel = .focus,
-        action: KeenAction = .none,
+        action: SchedAction = .none,
+        sound: AlarmSound? = nil,
         repeatDaily: Bool = false,
         enabled: Bool = true,
         isTimer: Bool = false,
@@ -210,6 +247,7 @@ struct KeenAlarm: Codable, Identifiable, Equatable {
         self.fireAt = fireAt
         self.level = level
         self.action = action
+        self.sound = sound
         self.repeatDaily = repeatDaily
         self.enabled = enabled
         self.isTimer = isTimer
@@ -217,7 +255,7 @@ struct KeenAlarm: Codable, Identifiable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, note, fireAt, level, action, repeatDaily, enabled
+        case id, title, note, fireAt, level, action, sound, repeatDaily, enabled
         case isTimer, pausedRemainingSeconds
     }
 
@@ -228,7 +266,8 @@ struct KeenAlarm: Codable, Identifiable, Equatable {
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
         fireAt = try c.decode(Date.self, forKey: .fireAt)
         level = try c.decode(InterventionLevel.self, forKey: .level)
-        action = try c.decodeIfPresent(KeenAction.self, forKey: .action) ?? .none
+        action = try c.decodeIfPresent(SchedAction.self, forKey: .action) ?? .none
+        sound = try c.decodeIfPresent(AlarmSound.self, forKey: .sound)
         repeatDaily = try c.decodeIfPresent(Bool.self, forKey: .repeatDaily) ?? false
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         isTimer = try c.decodeIfPresent(Bool.self, forKey: .isTimer) ?? false
@@ -236,26 +275,32 @@ struct KeenAlarm: Codable, Identifiable, Equatable {
     }
 }
 
-struct KeenStore: Codable {
-    var alarms: [KeenAlarm]
-    var appWatches: [KeenAppWatch]
+struct SchedStore: Codable {
+    var alarms: [SchedAlarm]
+    var appWatches: [SchedAppWatch]
     var defaultLevel: InterventionLevel
     var snoozeMinutes: Int
     var idleMinutesBeforeNudge: Int?
     var launchAtLogin: Bool
     var playSoundOnAlert: Bool
     var repeatSoundOnAlert: Bool
+    var defaultSound: AlarmSound
+    var soundVolume: Double
     var systemNotificationsEnabled: Bool
     var headlessWhenClosed: Bool
     var menuBarShowIcon: Bool
     var menuBarShowDate: Bool
     var menuBarShowTime: Bool
     var menuBarShowSeconds: Bool
-    var menuBarShowNextCountdown: Bool
+    var menuBarClockEnabled: Bool
+    var menuBarTimerEnabled: Bool
+    var menuBarTimerHideWhenIdle: Bool
+    var floatingTimerAutoShow: Bool
+    var floatingTimerAlwaysOnTop: Bool
     var hourStyle: HourStyle
     var showAMPM: Bool
 
-    static let empty = KeenStore(
+    static let empty = SchedStore(
         alarms: [],
         appWatches: [],
         defaultLevel: .gentle,
@@ -264,40 +309,55 @@ struct KeenStore: Codable {
         launchAtLogin: false,
         playSoundOnAlert: true,
         repeatSoundOnAlert: false,
+        defaultSound: .defaultSystem,
+        soundVolume: 0.8,
         systemNotificationsEnabled: true,
         headlessWhenClosed: true,
         menuBarShowIcon: true,
         menuBarShowDate: false,
         menuBarShowTime: true,
         menuBarShowSeconds: false,
-        menuBarShowNextCountdown: false,
+        menuBarClockEnabled: true,
+        menuBarTimerEnabled: true,
+        menuBarTimerHideWhenIdle: false,
+        floatingTimerAutoShow: false,
+        floatingTimerAlwaysOnTop: true,
         hourStyle: .system,
         showAMPM: true
     )
 
     enum CodingKeys: String, CodingKey {
         case alarms, appWatches, defaultLevel, snoozeMinutes, idleMinutesBeforeNudge
-        case launchAtLogin, playSoundOnAlert, repeatSoundOnAlert, systemNotificationsEnabled, headlessWhenClosed
-        case menuBarShowIcon, menuBarShowDate, menuBarShowTime, menuBarShowSeconds, menuBarShowNextCountdown
+        case launchAtLogin, playSoundOnAlert, repeatSoundOnAlert, defaultSound, soundVolume
+        case systemNotificationsEnabled, headlessWhenClosed
+        case menuBarShowIcon, menuBarShowDate, menuBarShowTime, menuBarShowSeconds
+        case menuBarClockEnabled, menuBarTimerEnabled, menuBarTimerHideWhenIdle
+        case floatingTimerAutoShow, floatingTimerAlwaysOnTop
         case hourStyle, showAMPM
     }
 
     init(
-        alarms: [KeenAlarm],
-        appWatches: [KeenAppWatch],
+        alarms: [SchedAlarm],
+        appWatches: [SchedAppWatch],
         defaultLevel: InterventionLevel,
         snoozeMinutes: Int,
         idleMinutesBeforeNudge: Int?,
         launchAtLogin: Bool,
         playSoundOnAlert: Bool,
         repeatSoundOnAlert: Bool,
+        defaultSound: AlarmSound,
+        soundVolume: Double,
         systemNotificationsEnabled: Bool,
         headlessWhenClosed: Bool,
         menuBarShowIcon: Bool,
         menuBarShowDate: Bool,
         menuBarShowTime: Bool,
         menuBarShowSeconds: Bool,
-        menuBarShowNextCountdown: Bool,
+        menuBarClockEnabled: Bool,
+        menuBarTimerEnabled: Bool,
+        menuBarTimerHideWhenIdle: Bool,
+        floatingTimerAutoShow: Bool,
+        floatingTimerAlwaysOnTop: Bool,
         hourStyle: HourStyle,
         showAMPM: Bool
     ) {
@@ -309,34 +369,46 @@ struct KeenStore: Codable {
         self.launchAtLogin = launchAtLogin
         self.playSoundOnAlert = playSoundOnAlert
         self.repeatSoundOnAlert = repeatSoundOnAlert
+        self.defaultSound = defaultSound
+        self.soundVolume = soundVolume
         self.systemNotificationsEnabled = systemNotificationsEnabled
         self.headlessWhenClosed = headlessWhenClosed
         self.menuBarShowIcon = menuBarShowIcon
         self.menuBarShowDate = menuBarShowDate
         self.menuBarShowTime = menuBarShowTime
         self.menuBarShowSeconds = menuBarShowSeconds
-        self.menuBarShowNextCountdown = menuBarShowNextCountdown
+        self.menuBarClockEnabled = menuBarClockEnabled
+        self.menuBarTimerEnabled = menuBarTimerEnabled
+        self.menuBarTimerHideWhenIdle = menuBarTimerHideWhenIdle
+        self.floatingTimerAutoShow = floatingTimerAutoShow
+        self.floatingTimerAlwaysOnTop = floatingTimerAlwaysOnTop
         self.hourStyle = hourStyle
         self.showAMPM = showAMPM
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        alarms = try c.decode([KeenAlarm].self, forKey: .alarms)
-        appWatches = try c.decodeIfPresent([KeenAppWatch].self, forKey: .appWatches) ?? []
+        alarms = try c.decode([SchedAlarm].self, forKey: .alarms)
+        appWatches = try c.decodeIfPresent([SchedAppWatch].self, forKey: .appWatches) ?? []
         defaultLevel = try c.decode(InterventionLevel.self, forKey: .defaultLevel)
         snoozeMinutes = try c.decode(Int.self, forKey: .snoozeMinutes)
         idleMinutesBeforeNudge = try c.decodeIfPresent(Int.self, forKey: .idleMinutesBeforeNudge)
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         playSoundOnAlert = try c.decodeIfPresent(Bool.self, forKey: .playSoundOnAlert) ?? true
         repeatSoundOnAlert = try c.decodeIfPresent(Bool.self, forKey: .repeatSoundOnAlert) ?? false
+        defaultSound = try c.decodeIfPresent(AlarmSound.self, forKey: .defaultSound) ?? .defaultSystem
+        soundVolume = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .soundVolume) ?? 0.8))
         systemNotificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .systemNotificationsEnabled) ?? true
         headlessWhenClosed = try c.decodeIfPresent(Bool.self, forKey: .headlessWhenClosed) ?? true
         menuBarShowIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarShowIcon) ?? true
         menuBarShowDate = try c.decodeIfPresent(Bool.self, forKey: .menuBarShowDate) ?? false
         menuBarShowTime = try c.decodeIfPresent(Bool.self, forKey: .menuBarShowTime) ?? true
         menuBarShowSeconds = try c.decodeIfPresent(Bool.self, forKey: .menuBarShowSeconds) ?? false
-        menuBarShowNextCountdown = try c.decodeIfPresent(Bool.self, forKey: .menuBarShowNextCountdown) ?? false
+        menuBarClockEnabled = try c.decodeIfPresent(Bool.self, forKey: .menuBarClockEnabled) ?? true
+        menuBarTimerEnabled = try c.decodeIfPresent(Bool.self, forKey: .menuBarTimerEnabled) ?? true
+        menuBarTimerHideWhenIdle = try c.decodeIfPresent(Bool.self, forKey: .menuBarTimerHideWhenIdle) ?? false
+        floatingTimerAutoShow = try c.decodeIfPresent(Bool.self, forKey: .floatingTimerAutoShow) ?? false
+        floatingTimerAlwaysOnTop = try c.decodeIfPresent(Bool.self, forKey: .floatingTimerAlwaysOnTop) ?? true
         hourStyle = try c.decodeIfPresent(HourStyle.self, forKey: .hourStyle) ?? .system
         showAMPM = try c.decodeIfPresent(Bool.self, forKey: .showAMPM) ?? true
     }

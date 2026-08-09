@@ -1,5 +1,6 @@
 import AppKit
 import ServiceManagement
+import UniformTypeIdentifiers
 
 @MainActor
 final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
@@ -18,20 +19,34 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
     private let repeatSoundCheck = NSButton(checkboxWithTitle: "Repeat sound until handled", target: nil, action: nil)
     private let notificationsCheck = NSButton(checkboxWithTitle: "Also use macOS notifications", target: nil, action: nil)
     private let notificationStatus = NSTextField(labelWithString: "Checking notification access…")
+    private let defaultSoundPopup = NSPopUpButton()
+    private let soundVolumeSlider = NSSlider(value: 0.8, minValue: 0, maxValue: 1, target: nil, action: nil)
+    private let soundVolumeValue = NSTextField(labelWithString: "80%")
+    private let previewSoundButton = SchedGhostButton("Preview", action: #selector(previewSelectedSound), target: nil)
+    private let importSoundButton = SchedGhostButton("Import Short Sound…", action: #selector(importShortSound), target: nil)
+    private let linkAudioButton = SchedGhostButton("Link Audio…", action: #selector(linkExternalAudio), target: nil)
+    private let removeSoundButton = SchedGhostButton("Remove Managed Sound", action: #selector(removeManagedSound), target: nil)
+
+    private let clockStatusCheck = NSButton(checkboxWithTitle: "Show clock + calendar utility", target: nil, action: nil)
+    private let timerStatusCheck = NSButton(checkboxWithTitle: "Show timer utility", target: nil, action: nil)
+    private let timerHideIdleCheck = NSButton(checkboxWithTitle: "Hide timer utility when idle", target: nil, action: nil)
+    private let floatingAutoCheck = NSButton(checkboxWithTitle: "Show floating timer automatically", target: nil, action: nil)
+    private let floatingAlwaysOnTopCheck = NSButton(checkboxWithTitle: "Keep floating timer above other windows", target: nil, action: nil)
 
     private let menuIconCheck = NSButton(checkboxWithTitle: "Icon", target: nil, action: nil)
     private let menuDateCheck = NSButton(checkboxWithTitle: "Date", target: nil, action: nil)
     private let menuTimeCheck = NSButton(checkboxWithTitle: "Time", target: nil, action: nil)
     private let menuSecondsCheck = NSButton(checkboxWithTitle: "Seconds", target: nil, action: nil)
-    private let menuCountdownCheck = NSButton(checkboxWithTitle: "Next reminder countdown", target: nil, action: nil)
     private let hourStylePopup = NSPopUpButton()
     private let periodCheck = NSButton(checkboxWithTitle: "Show AM/PM", target: nil, action: nil)
 
-    private let targetPopup = keenAppPopup()
+    private let targetPopup = schedAppPopup()
     private var chosenTarget: RunningApp?
     private let limitField = SettingsPanelController.integerField(value: 45, maximum: 480)
     private let limitStepper = NSStepper()
     private let limitsList = NSStackView()
+    private var limitStatusLabels: [UUID: NSTextField] = [:]
+    private var watchObserver: UUID?
 
     init(mode: Mode = .preferences) {
         self.mode = mode
@@ -46,10 +61,10 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         view.layer?.backgroundColor = .clear
 
         let title = NSTextField(labelWithString: mode == .limits ? "Limits" : "Preferences")
-        title.font = KeenDesign.display(28)
-        KeenDesign.label(title)
+        title.font = SchedDesign.display(28)
+        SchedDesign.label(title)
 
-        let document = KeenFlippedView()
+        let document = SchedFlippedView()
         document.translatesAutoresizingMaskIntoConstraints = false
         scroll.documentView = document
         schedConfigureScroll(scroll)
@@ -59,18 +74,27 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         configureControls()
 
         let general = card(stack: generalStack())
+        let sounds = card(stack: soundsStack())
         let menuBar = card(stack: menuBarStack())
+        let timerBehavior = card(stack: timerBehaviorStack())
         let limits = card(stack: limitsStack())
         let contentViews: [NSView] = mode == .limits
             ? [sectionTitle("App limits"), limits]
-            : [sectionTitle("General"), general, sectionTitle("Menu bar"), menuBar]
+            : [
+                sectionTitle("General"), general,
+                sectionTitle("Sounds"), sounds,
+                sectionTitle("Menu bar"), menuBar,
+                sectionTitle("Timer"), timerBehavior,
+            ]
         let content = NSStackView(views: contentViews)
         content.orientation = .vertical
         content.alignment = .leading
         content.spacing = 10
         if mode == .preferences {
             content.setCustomSpacing(24, after: general)
+            content.setCustomSpacing(24, after: sounds)
             content.setCustomSpacing(24, after: menuBar)
+            content.setCustomSpacing(24, after: timerBehavior)
         }
         content.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(content)
@@ -85,7 +109,9 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             limits.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
         } else {
             general.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+            sounds.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
             menuBar.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+            timerBehavior.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
         }
 
         let clip = scroll.contentView
@@ -112,7 +138,15 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        if mode == .limits { reloadTargets() }
+        if mode == .limits {
+            reloadTargets()
+            if watchObserver == nil {
+                watchObserver = AppWatchMonitor.shared.observeChanges { [weak self] in
+                    self?.updateLimitRuntimeStatuses()
+                }
+            }
+            AppWatchMonitor.shared.evaluateNow()
+        }
         refreshNotificationHealth()
         view.layoutSubtreeIfNeeded()
         DispatchQueue.main.async { [weak self] in
@@ -139,11 +173,27 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         idleField.delegate = self
         limitField.delegate = self
 
-        for check in [launchCheck, headlessCheck, soundCheck, repeatSoundCheck, notificationsCheck,
-                      menuIconCheck, menuDateCheck, menuTimeCheck, menuSecondsCheck, menuCountdownCheck] {
+        for check in [
+            launchCheck, headlessCheck, soundCheck, repeatSoundCheck, notificationsCheck,
+            clockStatusCheck, timerStatusCheck, timerHideIdleCheck, floatingAutoCheck, floatingAlwaysOnTopCheck,
+            menuIconCheck, menuDateCheck, menuTimeCheck, menuSecondsCheck,
+        ] {
             check.target = self
             check.action = #selector(save)
         }
+
+        schedStyleSelector(defaultSoundPopup)
+        defaultSoundPopup.target = self
+        defaultSoundPopup.action = #selector(soundSelectionChanged)
+        soundVolumeSlider.target = self
+        soundVolumeSlider.action = #selector(soundVolumeChanged)
+        soundVolumeSlider.isContinuous = false
+        soundVolumeValue.font = SchedDesign.mono(12)
+        SchedDesign.label(soundVolumeValue, color: SchedDesign.inkMuted)
+        previewSoundButton.target = self
+        importSoundButton.target = self
+        linkAudioButton.target = self
+        removeSoundButton.target = self
 
         schedStyleSelector(targetPopup)
         targetPopup.target = self
@@ -166,12 +216,12 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         stack.addArrangedSubview(formRow("Default alert", control: defaultLevel))
         stack.addArrangedSubview(formRow("Default snooze", control: numberEditor(snoozeField, snoozeStepper, suffix: "minutes")))
         stack.addArrangedSubview(formRow("Idle reminder", control: numberEditor(idleField, idleStepper, suffix: "minutes · 0 is off")))
-        for check in [launchCheck, headlessCheck, soundCheck, repeatSoundCheck, notificationsCheck] {
+        for check in [launchCheck, headlessCheck, notificationsCheck] {
             stack.addArrangedSubview(check)
         }
-        let testNotification = KeenGhostButton("Test sound + notification", action: #selector(testNotification), target: self)
-        notificationStatus.font = KeenDesign.caption(11)
-        KeenDesign.label(notificationStatus, color: KeenDesign.inkMuted)
+        let testNotification = SchedGhostButton("Test sound + notification", action: #selector(testNotification), target: self)
+        notificationStatus.font = SchedDesign.caption(11)
+        SchedDesign.label(notificationStatus, color: SchedDesign.inkMuted)
         stack.addArrangedSubview(testNotification)
         stack.addArrangedSubview(notificationStatus)
         defaultLevel.widthAnchor.constraint(equalToConstant: 300).isActive = true
@@ -187,22 +237,58 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         NotificationService.shared.notificationHealth { [weak self] message, ready in
             guard let self else { return }
             self.notificationStatus.stringValue = message
-            self.notificationStatus.textColor = ready ? .systemGreen : KeenDesign.accent
+            self.notificationStatus.textColor = ready ? .systemGreen : SchedDesign.accent
         }
+    }
+
+    private func soundsStack() -> NSStackView {
+        let stack = verticalStack()
+        stack.addArrangedSubview(helper("Short imported alert sounds are copied into Sched’s Application Support folder. Longer audio stays where you put it and is linked instead."))
+        stack.addArrangedSubview(soundCheck)
+        stack.addArrangedSubview(repeatSoundCheck)
+        stack.addArrangedSubview(formRow("Default sound", control: defaultSoundPopup))
+
+        let volumeRow = NSStackView(views: [soundVolumeSlider, soundVolumeValue])
+        volumeRow.orientation = .horizontal
+        volumeRow.alignment = .centerY
+        volumeRow.spacing = 10
+        soundVolumeSlider.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        soundVolumeValue.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        stack.addArrangedSubview(formRow("Volume", control: volumeRow))
+
+        let actions = NSStackView(views: [previewSoundButton, importSoundButton, linkAudioButton, removeSoundButton])
+        actions.orientation = .horizontal
+        actions.alignment = .centerY
+        actions.spacing = 8
+        stack.addArrangedSubview(actions)
+        defaultSoundPopup.widthAnchor.constraint(equalToConstant: 300).isActive = true
+        return stack
     }
 
     private func menuBarStack() -> NSStackView {
         let stack = verticalStack()
-        let intro = helper("Choose only what earns space in the menu bar. The calendar remains available from the menu.")
-        let components = NSStackView(views: [menuIconCheck, menuDateCheck, menuTimeCheck, menuSecondsCheck])
-        components.orientation = .horizontal
-        components.spacing = 16
-        stack.addArrangedSubview(intro)
-        stack.addArrangedSubview(formRow("Show", control: components))
-        stack.addArrangedSubview(formRow("Clock", control: hourStylePopup))
+        stack.addArrangedSubview(helper("Sched uses two independent status items, so the timer and clock can be shown, hidden, and arranged separately."))
+        stack.addArrangedSubview(clockStatusCheck)
+        let clockComponents = NSStackView(views: [menuIconCheck, menuDateCheck, menuTimeCheck, menuSecondsCheck])
+        clockComponents.orientation = .horizontal
+        clockComponents.spacing = 16
+        stack.addArrangedSubview(formRow("Clock shows", control: clockComponents))
+        stack.addArrangedSubview(formRow("Clock format", control: hourStylePopup))
         stack.addArrangedSubview(periodCheck)
-        stack.addArrangedSubview(menuCountdownCheck)
+        stack.setCustomSpacing(16, after: periodCheck)
+        stack.addArrangedSubview(timerStatusCheck)
+        stack.addArrangedSubview(timerHideIdleCheck)
         hourStylePopup.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        return stack
+    }
+
+    private func timerBehaviorStack() -> NSStackView {
+        let stack = verticalStack()
+        stack.addArrangedSubview(helper("The floating timer is an optional utility window. Closing it never stops the underlying timer."))
+        stack.addArrangedSubview(floatingAutoCheck)
+        stack.addArrangedSubview(floatingAlwaysOnTopCheck)
+        let show = SchedGhostButton("Show Floating Timer", action: #selector(showFloatingTimer), target: self)
+        stack.addArrangedSubview(show)
         return stack
     }
 
@@ -211,10 +297,10 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         stack.addArrangedSubview(helper("Choose any installed app—or an executable—and decide when Sched should intervene."))
         stack.addArrangedSubview(formRow("App or executable", control: targetPopup))
         stack.addArrangedSubview(formRow("Remind me after", control: numberEditor(limitField, limitStepper, suffix: "minutes open")))
-        let add = KeenPrimaryButton("Add limit", action: #selector(addLimit), target: self)
+        let add = SchedPrimaryButton("Add limit", action: #selector(addLimit), target: self)
         stack.addArrangedSubview(add)
         stack.setCustomSpacing(16, after: add)
-        stack.addArrangedSubview(keenFieldLabel("Active limits"))
+        stack.addArrangedSubview(schedFieldLabel("Active limits"))
         stack.addArrangedSubview(limitsList)
         targetPopup.widthAnchor.constraint(equalToConstant: 360).isActive = true
         return stack
@@ -233,16 +319,25 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         soundCheck.state = s.playSoundOnAlert ? .on : .off
         repeatSoundCheck.state = s.repeatSoundOnAlert ? .on : .off
         repeatSoundCheck.isEnabled = s.playSoundOnAlert
+        reloadSoundPopup(selected: s.defaultSound)
+        soundVolumeSlider.doubleValue = s.soundVolume
+        soundVolumeValue.stringValue = "\(Int((s.soundVolume * 100).rounded()))%"
         notificationsCheck.state = s.systemNotificationsEnabled ? .on : .off
+        clockStatusCheck.state = s.menuBarClockEnabled ? .on : .off
+        timerStatusCheck.state = s.menuBarTimerEnabled ? .on : .off
+        timerHideIdleCheck.state = s.menuBarTimerHideWhenIdle ? .on : .off
+        floatingAutoCheck.state = s.floatingTimerAutoShow ? .on : .off
+        floatingAlwaysOnTopCheck.state = s.floatingTimerAlwaysOnTop ? .on : .off
         menuIconCheck.state = s.menuBarShowIcon ? .on : .off
         menuDateCheck.state = s.menuBarShowDate ? .on : .off
         menuTimeCheck.state = s.menuBarShowTime ? .on : .off
         menuSecondsCheck.state = s.menuBarShowSeconds ? .on : .off
         menuSecondsCheck.isEnabled = s.menuBarShowTime
-        menuCountdownCheck.state = s.menuBarShowNextCountdown ? .on : .off
         hourStylePopup.selectItem(at: HourStyle.allCases.firstIndex(of: s.hourStyle) ?? 0)
         periodCheck.state = s.showAMPM ? .on : .off
-        periodCheck.isEnabled = !SchedTimeFormat.resolvedUses24Hour(s.hourStyle)
+        periodCheck.isEnabled = s.menuBarClockEnabled && !SchedTimeFormat.resolvedUses24Hour(s.hourStyle)
+        updateMenuControlAvailability(for: s)
+        updateSoundControlAvailability(for: s)
         reloadLimits()
     }
 
@@ -274,6 +369,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
 
     private func reloadLimits() {
         limitsList.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        limitStatusLabels.removeAll()
         let watches = ScheduleStore.shared.store.appWatches
         guard !watches.isEmpty else {
             limitsList.addArrangedSubview(helper("No app limits yet."))
@@ -293,9 +389,19 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             icon.heightAnchor.constraint(equalToConstant: 18).isActive = true
 
             let name = NSTextField(labelWithString: watch.appName)
-            name.font = KeenDesign.body(13)
+            name.font = SchedDesign.body(13)
             name.lineBreakMode = .byTruncatingTail
             name.widthAnchor.constraint(equalToConstant: 170).isActive = true
+            let runtime = NSTextField(labelWithString: AppWatchMonitor.shared.status(for: watch.id)?.summary ?? "Waiting for activity")
+            runtime.font = SchedDesign.caption(11)
+            SchedDesign.label(runtime, color: SchedDesign.inkMuted)
+            runtime.lineBreakMode = .byTruncatingTail
+            runtime.widthAnchor.constraint(equalToConstant: 210).isActive = true
+            limitStatusLabels[watch.id] = runtime
+            let identity = NSStackView(views: [name, runtime])
+            identity.orientation = .vertical
+            identity.alignment = .leading
+            identity.spacing = 2
 
             let minutes = Self.integerField(value: watch.maxMinutes, maximum: 480)
             minutes.identifier = NSUserInterfaceItemIdentifier(watch.id.uuidString)
@@ -308,21 +414,24 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             stepper.identifier = minutes.identifier
 
             let suffix = NSTextField(labelWithString: "min")
-            suffix.textColor = KeenDesign.inkMuted
+            suffix.textColor = SchedDesign.inkMuted
             let enabled = NSButton(checkboxWithTitle: "Active", target: self, action: #selector(toggleLimit(_:)))
             enabled.state = watch.enabled ? .on : .off
             enabled.identifier = minutes.identifier
-            let remove = KeenGhostButton("Remove", action: #selector(removeLimit(_:)), target: self)
+            let remove = SchedGhostButton("Remove", action: #selector(removeLimit(_:)), target: self)
             remove.identifier = minutes.identifier
 
-            [icon, name, minutes, stepper, suffix, enabled, remove].forEach { row.addArrangedSubview($0) }
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            [icon, identity, spacer, minutes, stepper, suffix, enabled, remove].forEach { row.addArrangedSubview($0) }
             limitsList.addArrangedSubview(row)
         }
     }
 
     @objc private func save() {
         var s = ScheduleStore.shared.store
-        if ![menuIconCheck, menuDateCheck, menuTimeCheck].contains(where: { $0.state == .on }) {
+        if clockStatusCheck.state == .on,
+           ![menuIconCheck, menuDateCheck, menuTimeCheck].contains(where: { $0.state == .on }) {
             menuIconCheck.state = .on
         }
         s.defaultLevel = InterventionLevel.allCases[max(0, defaultLevel.indexOfSelectedItem)]
@@ -333,22 +442,184 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         s.headlessWhenClosed = headlessCheck.state == .on
         s.playSoundOnAlert = soundCheck.state == .on
         s.repeatSoundOnAlert = repeatSoundCheck.state == .on
+        s.defaultSound = selectedSound() ?? s.defaultSound
+        s.soundVolume = min(1, max(0, soundVolumeSlider.doubleValue))
         s.systemNotificationsEnabled = notificationsCheck.state == .on
+        s.menuBarClockEnabled = clockStatusCheck.state == .on
+        s.menuBarTimerEnabled = timerStatusCheck.state == .on
+        s.menuBarTimerHideWhenIdle = timerHideIdleCheck.state == .on
+        s.floatingTimerAutoShow = floatingAutoCheck.state == .on
+        s.floatingTimerAlwaysOnTop = floatingAlwaysOnTopCheck.state == .on
         s.menuBarShowIcon = menuIconCheck.state == .on
         s.menuBarShowDate = menuDateCheck.state == .on
         s.menuBarShowTime = menuTimeCheck.state == .on
         s.menuBarShowSeconds = menuSecondsCheck.state == .on && s.menuBarShowTime
-        s.menuBarShowNextCountdown = menuCountdownCheck.state == .on
         s.hourStyle = HourStyle.allCases[max(0, hourStylePopup.indexOfSelectedItem)]
         s.showAMPM = periodCheck.state == .on
         repeatSoundCheck.isEnabled = s.playSoundOnAlert
-        menuSecondsCheck.isEnabled = s.menuBarShowTime
         if !s.menuBarShowTime { menuSecondsCheck.state = .off }
-        periodCheck.isEnabled = !SchedTimeFormat.resolvedUses24Hour(s.hourStyle)
+        updateMenuControlAvailability(for: s)
+        updateSoundControlAvailability(for: s)
         ScheduleStore.shared.replaceStore(s)
         if s.systemNotificationsEnabled { NotificationService.shared.requestAuthorizationIfNeeded() }
         LoginItemHelper.sync(enabled: s.launchAtLogin)
         AccessibilityMonitor.shared.start()
+    }
+
+    @objc private func soundSelectionChanged() {
+        updateRemoveSoundAvailability()
+        save()
+    }
+
+    @objc private func soundVolumeChanged() {
+        soundVolumeValue.stringValue = "\(Int((soundVolumeSlider.doubleValue * 100).rounded()))%"
+        save()
+    }
+
+    @objc private func previewSelectedSound() {
+        guard let sound = selectedSound() else { return }
+        AlarmAudioService.shared.preview(sound, volume: soundVolumeSlider.doubleValue)
+    }
+
+    @objc private func importShortSound() {
+        let panel = NSOpenPanel()
+        panel.title = "Import a Short Alert Sound"
+        panel.message = "Sched copies alert sounds up to 5 seconds into Application Support."
+        panel.prompt = "Import"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.audio]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let sound = try AlarmAudioService.shared.importShortSound(from: url)
+            reloadSoundPopup(selected: sound)
+            save()
+            AlarmAudioService.shared.preview(sound, volume: soundVolumeSlider.doubleValue)
+        } catch {
+            presentSoundError(error)
+        }
+    }
+
+    @objc private func linkExternalAudio() {
+        let panel = NSOpenPanel()
+        panel.title = "Link Audio"
+        panel.message = "Long audio is not copied. Keep the original file where it is. Enable Repeat sound if you want it to loop."
+        panel.prompt = "Link"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.audio]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let sound = try AlarmAudioService.shared.linkExternalAudio(from: url)
+            reloadSoundPopup(selected: sound)
+            save()
+            AlarmAudioService.shared.preview(sound, volume: soundVolumeSlider.doubleValue)
+        } catch {
+            presentSoundError(error)
+        }
+    }
+
+    @objc private func removeManagedSound() {
+        guard let sound = selectedSound(), case .imported = sound else { return }
+        do {
+            try AlarmAudioService.shared.removeImportedSound(sound)
+
+            var store = ScheduleStore.shared.store
+            if store.defaultSound == sound {
+                store.defaultSound = .defaultSystem
+            }
+            for index in store.alarms.indices where store.alarms[index].sound == sound {
+                store.alarms[index].sound = nil
+            }
+            ScheduleStore.shared.replaceStore(store)
+            reloadSoundPopup(selected: .defaultSystem)
+        } catch {
+            presentSoundError(error)
+        }
+    }
+
+    @objc private func showFloatingTimer() {
+        FloatingTimerController.shared.show()
+    }
+
+    private func reloadSoundPopup(selected: AlarmSound) {
+        defaultSoundPopup.removeAllItems()
+        addSoundItem(.none, title: "None")
+        defaultSoundPopup.menu?.addItem(.separator())
+        if case .externalFile = selected {
+            addSoundItem(selected, title: "Linked: \(selected.displayName)")
+            defaultSoundPopup.menu?.addItem(.separator())
+        }
+        let systemSounds = AlarmAudioService.shared.availableSystemSounds()
+        for sound in systemSounds {
+            addSoundItem(sound, title: sound.displayName)
+        }
+        let imported = AlarmAudioService.shared.availableImportedSounds()
+        if !imported.isEmpty {
+            defaultSoundPopup.menu?.addItem(.separator())
+            for sound in imported {
+                addSoundItem(sound, title: "Imported: \(sound.displayName)")
+            }
+        }
+        if let index = defaultSoundPopup.itemArray.firstIndex(where: { ($0.representedObject as? AlarmSound) == selected }) {
+            defaultSoundPopup.selectItem(at: index)
+        } else if let index = defaultSoundPopup.itemArray.firstIndex(where: { ($0.representedObject as? AlarmSound) == AlarmSound.defaultSystem }) {
+            defaultSoundPopup.selectItem(at: index)
+        }
+        updateRemoveSoundAvailability()
+    }
+
+    private func addSoundItem(_ sound: AlarmSound, title: String) {
+        defaultSoundPopup.addItem(withTitle: title)
+        defaultSoundPopup.lastItem?.representedObject = sound
+    }
+
+    private func selectedSound() -> AlarmSound? {
+        defaultSoundPopup.selectedItem?.representedObject as? AlarmSound
+    }
+
+    private func updateRemoveSoundAvailability() {
+        if let sound = selectedSound(), case .imported = sound {
+            removeSoundButton.isEnabled = true
+        } else {
+            removeSoundButton.isEnabled = false
+        }
+    }
+
+    private func updateSoundControlAvailability(for store: SchedStore) {
+        let enabled = store.playSoundOnAlert
+        defaultSoundPopup.isEnabled = enabled
+        soundVolumeSlider.isEnabled = enabled
+        previewSoundButton.isEnabled = enabled
+        importSoundButton.isEnabled = enabled
+        linkAudioButton.isEnabled = enabled
+        repeatSoundCheck.isEnabled = enabled
+        if !enabled { removeSoundButton.isEnabled = false } else { updateRemoveSoundAvailability() }
+    }
+
+    private func updateMenuControlAvailability(for store: SchedStore) {
+        let clockEnabled = store.menuBarClockEnabled
+        menuIconCheck.isEnabled = clockEnabled
+        menuDateCheck.isEnabled = clockEnabled
+        menuTimeCheck.isEnabled = clockEnabled
+        menuSecondsCheck.isEnabled = clockEnabled && store.menuBarShowTime
+        hourStylePopup.isEnabled = clockEnabled && store.menuBarShowTime
+        periodCheck.isEnabled = clockEnabled && store.menuBarShowTime && !SchedTimeFormat.resolvedUses24Hour(store.hourStyle)
+        timerHideIdleCheck.isEnabled = store.menuBarTimerEnabled
+    }
+
+    private func presentSoundError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn’t Use That Sound"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
+
+    private func updateLimitRuntimeStatuses() {
+        for (id, label) in limitStatusLabels {
+            label.stringValue = AppWatchMonitor.shared.status(for: id)?.summary ?? "Waiting for activity"
+        }
     }
 
     @objc private func generalStepperChanged(_ sender: NSStepper) {
@@ -432,13 +703,13 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             if let bundleId = app.bundleId, !bundleId.isEmpty { return $0.bundleId == bundleId }
             return $0.executablePath == app.executablePath
         }) else { NSSound.beep(); return }
-        s.appWatches.append(KeenAppWatch(
+        s.appWatches.append(SchedAppWatch(
             appName: app.name,
             bundleId: app.bundleId,
             executablePath: app.executablePath,
             maxMinutes: clamped(limitField.integerValue, 1...480),
             level: s.defaultLevel,
-            action: .quitApp(name: app.name)
+            action: .none
         ))
         ScheduleStore.shared.replaceStore(s)
         reloadLimits()
@@ -476,8 +747,8 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         reloadLimits()
     }
 
-    private func card(stack: NSStackView) -> KeenGlassSurface {
-        let glass = KeenGlassSurface()
+    private func card(stack: NSStackView) -> SchedGlassSurface {
+        let glass = SchedGlassSurface()
         glass.innerContentView.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: glass.innerContentView.topAnchor, constant: 20),
@@ -498,7 +769,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
     }
 
     private func formRow(_ label: String, control: NSView) -> NSStackView {
-        let caption = keenFieldLabel(label)
+        let caption = schedFieldLabel(label)
         caption.widthAnchor.constraint(equalToConstant: 140).isActive = true
         let row = NSStackView(views: [caption, control])
         row.orientation = .horizontal
@@ -509,8 +780,8 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
 
     private func numberEditor(_ field: NSTextField, _ stepper: NSStepper, suffix: String) -> NSStackView {
         let suffixLabel = NSTextField(labelWithString: suffix)
-        suffixLabel.font = KeenDesign.body(12)
-        suffixLabel.textColor = KeenDesign.inkMuted
+        suffixLabel.font = SchedDesign.body(12)
+        suffixLabel.textColor = SchedDesign.inkMuted
         let row = NSStackView(views: [field, stepper, suffixLabel])
         row.orientation = .horizontal
         row.alignment = .centerY
@@ -520,15 +791,15 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
 
     private func sectionTitle(_ value: String) -> NSTextField {
         let label = NSTextField(labelWithString: value)
-        label.font = KeenDesign.title(18)
-        KeenDesign.label(label)
+        label.font = SchedDesign.title(18)
+        SchedDesign.label(label)
         return label
     }
 
     private func helper(_ value: String) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: value)
-        label.font = KeenDesign.body(12)
-        KeenDesign.label(label, color: KeenDesign.inkMuted)
+        label.font = SchedDesign.body(12)
+        SchedDesign.label(label, color: SchedDesign.inkMuted)
         label.preferredMaxLayoutWidth = 520
         return label
     }
@@ -550,7 +821,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         formatter.maximum = NSNumber(value: maximum)
         field.formatter = formatter
         field.alignment = .right
-        field.font = KeenDesign.mono(14)
+        field.font = SchedDesign.mono(14)
         field.focusRingType = .none
         field.translatesAutoresizingMaskIntoConstraints = false
         field.widthAnchor.constraint(equalToConstant: 58).isActive = true

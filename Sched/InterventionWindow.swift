@@ -4,14 +4,13 @@ import Foundation
 @MainActor
 final class InterventionWindowController: NSWindowController, NSWindowDelegate {
     private static let gentleOriginKey = "Sched.GentleReminderOrigin"
-    private let alarm: KeenAlarm
+    private let alarm: SchedAlarm
     var alarmID: UUID { alarm.id }
     private var onDismiss: (() -> Void)?
     private var countdownTimer: Timer?
     private var takeoverSecondsRemaining = 2
-    private var audioTimer: Timer?
 
-    init(alarm: KeenAlarm, onDismiss: @escaping () -> Void) {
+    init(alarm: SchedAlarm, onDismiss: @escaping () -> Void) {
         self.alarm = alarm
         self.onDismiss = onDismiss
 
@@ -22,7 +21,7 @@ final class InterventionWindowController: NSWindowController, NSWindowDelegate {
         case .gentle:
             let size = NSSize(width: 440, height: 166)
             let origin = Self.restoredGentleOrigin(size: size, fallbackScreen: screen)
-            window = KeenPanel(
+            window = SchedPanel(
                 contentRect: NSRect(origin: origin, size: size),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
@@ -34,7 +33,7 @@ final class InterventionWindowController: NSWindowController, NSWindowDelegate {
             window.isMovableByWindowBackground = true
 
         case .focus, .takeover:
-            window = KeenPanel(
+            window = SchedPanel(
                 contentRect: screen.frame,
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
@@ -58,7 +57,7 @@ final class InterventionWindowController: NSWindowController, NSWindowDelegate {
 
         switch alarm.level {
         case .gentle:
-            window.contentView = KeenGentleToast(
+            window.contentView = SchedGentleToast(
                 title: alarm.title,
                 note: alarm.note,
                 onDone: dismiss,
@@ -90,12 +89,6 @@ final class InterventionWindowController: NSWindowController, NSWindowDelegate {
             startTakeoverCountdown()
         }
 
-        let preferences = ScheduleStore.shared.store
-        if preferences.playSoundOnAlert && preferences.repeatSoundOnAlert {
-            audioTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.playReminderSound() }
-            }
-        }
 
         InterventionManager.shared.register(self)
     }
@@ -135,8 +128,7 @@ final class InterventionWindowController: NSWindowController, NSWindowDelegate {
     private func dismiss(runAction: Bool = false) {
         countdownTimer?.invalidate()
         countdownTimer = nil
-        audioTimer?.invalidate()
-        audioTimer = nil
+        AlarmAudioService.shared.stop(alarmID: alarm.id)
         if runAction, alarm.action != .none {
             ShortcutsBridge.perform(alarm.action)
         }
@@ -156,14 +148,6 @@ final class InterventionWindowController: NSWindowController, NSWindowDelegate {
         copy.enabled = true
         ScheduleStore.shared.upsert(copy)
         dismiss(runAction: false)
-    }
-
-    private func playReminderSound() {
-        if let sound = NSSound(named: NSSound.Name("Glass")) {
-            sound.play()
-        } else {
-            NSSound.beep()
-        }
     }
 
     private func act() {
@@ -187,7 +171,7 @@ final class InterventionWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-private final class KeenPanel: NSPanel {
+private final class SchedPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -210,7 +194,7 @@ private final class OverlayView: NSView {
     let takeoverContent: TakeoverContent?
 
     init(
-        alarm: KeenAlarm,
+        alarm: SchedAlarm,
         style: OverlayStyle,
         dismiss: @escaping () -> Void,
         snooze: @escaping (Int) -> Void,
@@ -226,7 +210,7 @@ private final class OverlayView: NSView {
         // snooze a time-sensitive reminder while the user is working.
         let dim = NSView()
         dim.wantsLayer = true
-        dim.layer?.backgroundColor = (style == .takeover ? KeenDesign.takeoverDim : KeenDesign.overlayDim).cgColor
+        dim.layer?.backgroundColor = (style == .takeover ? SchedDesign.takeoverDim : SchedDesign.overlayDim).cgColor
         dim.translatesAutoresizingMaskIntoConstraints = false
         addSubview(dim)
         NSLayoutConstraint.activate([
@@ -259,38 +243,38 @@ private final class OverlayView: NSView {
 // MARK: - Buttons
 
 @MainActor
-private func keenButton(_ title: String, style: KeenButtonStyle = .ghost, action: @escaping () -> Void) -> NSButton {
-    let button = KeenActionButton(title: title, actionHandler: action)
+private func schedButton(_ title: String, style: SchedButtonStyle = .ghost, action: @escaping () -> Void) -> NSButton {
+    let button = SchedActionButton(title: title, actionHandler: action)
     button.bezelStyle = .rounded
     button.isBordered = true
     button.controlSize = .large
-    button.font = KeenDesign.caption(12)
+    button.font = SchedDesign.caption(12)
     button.focusRingType = .none
     button.translatesAutoresizingMaskIntoConstraints = false
     button.heightAnchor.constraint(equalToConstant: 34).isActive = true
     switch style {
     case .ghost:
-        button.contentTintColor = KeenDesign.inkMuted
+        button.contentTintColor = SchedDesign.inkMuted
     case .primary:
         button.contentTintColor = .white
-        button.bezelColor = KeenDesign.accent
+        button.bezelColor = SchedDesign.accent
     case .primaryLight:
-        button.contentTintColor = KeenDesign.ink
-        button.bezelColor = KeenDesign.canvas
+        button.contentTintColor = SchedDesign.ink
+        button.bezelColor = SchedDesign.canvas
     }
     return button
 }
 
-private enum KeenButtonStyle { case ghost, primary, primaryLight }
+private enum SchedButtonStyle { case ghost, primary, primaryLight }
 
 // MARK: - Focus content
 
 private final class FocusContent: NSView {
-    init(alarm: KeenAlarm, dismiss: @escaping () -> Void, snooze: @escaping (Int) -> Void, act: @escaping () -> Void) {
+    init(alarm: SchedAlarm, dismiss: @escaping () -> Void, snooze: @escaping (Int) -> Void, act: @escaping () -> Void) {
         super.init(frame: .zero)
-        let glass = KeenGlassSurface(
+        let glass = SchedGlassSurface(
             cornerRadius: 20,
-            tint: KeenDesign.bubbleSelected,
+            tint: SchedDesign.bubbleSelected,
             interactive: false,
             stableWhenInactive: true
         )
@@ -305,46 +289,46 @@ private final class FocusContent: NSView {
         let host = glass.innerContentView
 
         let time = NSTextField(labelWithString: Self.timeString())
-        time.font = KeenDesign.mono(12)
-        time.textColor = KeenDesign.inkFaint
-        KeenDesign.labelStyle(time)
+        time.font = SchedDesign.mono(12)
+        time.textColor = SchedDesign.inkFaint
+        SchedDesign.labelStyle(time)
 
         let title = NSTextField(wrappingLabelWithString: alarm.title)
-        title.font = KeenDesign.title(24)
-        KeenDesign.labelStyle(title)
+        title.font = SchedDesign.title(24)
+        SchedDesign.labelStyle(title)
         title.maximumNumberOfLines = 2
 
         let note = NSTextField(wrappingLabelWithString: alarm.note.isEmpty ? "Pause. Make the next action obvious." : alarm.note)
-        note.font = KeenDesign.body(13)
-        note.textColor = KeenDesign.inkMuted
-        KeenDesign.labelStyle(note)
+        note.font = SchedDesign.body(13)
+        note.textColor = SchedDesign.inkMuted
+        SchedDesign.labelStyle(note)
         note.maximumNumberOfLines = 2
 
-        let rule = KeenDesign.hairline()
-        let snoozeBtn = KeenSnoozeButton(defaultMinutes: ScheduleStore.shared.store.snoozeMinutes, action: snooze)
-        let done = keenButton("Continue", style: .primary, action: dismiss)
+        let rule = SchedDesign.hairline()
+        let snoozeBtn = SchedSnoozeButton(defaultMinutes: ScheduleStore.shared.store.snoozeMinutes, action: snooze)
+        let done = schedButton("Continue", style: .primary, action: dismiss)
 
         [time, title, note, rule, snoozeBtn, done].forEach { host.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
-            time.topAnchor.constraint(equalTo: host.topAnchor, constant: KeenDesign.pad),
-            time.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: KeenDesign.pad),
+            time.topAnchor.constraint(equalTo: host.topAnchor, constant: SchedDesign.pad),
+            time.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: SchedDesign.pad),
             title.topAnchor.constraint(equalTo: time.bottomAnchor, constant: 6),
-            title.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: KeenDesign.pad),
-            title.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -KeenDesign.pad),
+            title.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: SchedDesign.pad),
+            title.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -SchedDesign.pad),
             note.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
-            note.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: KeenDesign.pad),
-            note.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -KeenDesign.pad),
-            rule.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: KeenDesign.pad),
-            rule.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -KeenDesign.pad),
-            rule.topAnchor.constraint(equalTo: note.isHidden ? title.bottomAnchor : note.bottomAnchor, constant: KeenDesign.padTight),
-            snoozeBtn.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: KeenDesign.pad),
-            snoozeBtn.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -KeenDesign.pad),
-            done.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -KeenDesign.pad),
-            done.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -KeenDesign.pad),
+            note.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: SchedDesign.pad),
+            note.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -SchedDesign.pad),
+            rule.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: SchedDesign.pad),
+            rule.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -SchedDesign.pad),
+            rule.topAnchor.constraint(equalTo: note.isHidden ? title.bottomAnchor : note.bottomAnchor, constant: SchedDesign.padTight),
+            snoozeBtn.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: SchedDesign.pad),
+            snoozeBtn.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -SchedDesign.pad),
+            done.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -SchedDesign.pad),
+            done.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -SchedDesign.pad),
             heightAnchor.constraint(equalToConstant: 220),
         ])
         if alarm.action != .none {
-            let run = keenButton("Run", style: .primaryLight, action: act)
+            let run = schedButton("Run", style: .primaryLight, action: act)
             host.addSubview(run)
             run.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
@@ -365,11 +349,11 @@ private final class FocusContent: NSView {
 private final class TakeoverContent: NSView {
     private var dismissButton: NSButton?
 
-    init(alarm: KeenAlarm, dismiss: @escaping () -> Void, snooze: @escaping (Int) -> Void, act: @escaping () -> Void) {
+    init(alarm: SchedAlarm, dismiss: @escaping () -> Void, snooze: @escaping (Int) -> Void, act: @escaping () -> Void) {
         super.init(frame: .zero)
-        let glass = KeenGlassSurface(
+        let glass = SchedGlassSurface(
             cornerRadius: 22,
-            tint: KeenDesign.bubbleSelected,
+            tint: SchedDesign.bubbleSelected,
             interactive: false,
             stableWhenInactive: true
         )
@@ -384,28 +368,28 @@ private final class TakeoverContent: NSView {
         let host = glass.innerContentView
 
         let title = NSTextField(wrappingLabelWithString: alarm.title)
-        title.font = KeenDesign.title(28)
+        title.font = SchedDesign.title(28)
         title.alignment = .center
-        KeenDesign.labelStyle(title)
+        SchedDesign.labelStyle(title)
         title.maximumNumberOfLines = 2
 
         let note = NSTextField(wrappingLabelWithString: alarm.note.isEmpty ? "Pause. Choose what matters next." : alarm.note)
-        note.font = KeenDesign.body(14)
-        note.textColor = KeenDesign.inkMuted
+        note.font = SchedDesign.body(14)
+        note.textColor = SchedDesign.inkMuted
         note.alignment = .center
-        KeenDesign.labelStyle(note)
+        SchedDesign.labelStyle(note)
         note.maximumNumberOfLines = 2
 
-        let done = keenButton("Continue", style: .primary, action: dismiss)
+        let done = schedButton("Continue", style: .primary, action: dismiss)
         done.isEnabled = false
         done.alphaValue = 0.35
         dismissButton = done
 
-        let snoozeBtn = KeenSnoozeButton(defaultMinutes: ScheduleStore.shared.store.snoozeMinutes, action: snooze)
+        let snoozeBtn = SchedSnoozeButton(defaultMinutes: ScheduleStore.shared.store.snoozeMinutes, action: snooze)
 
         var buttons: [NSView] = [snoozeBtn]
         if alarm.action != .none {
-            let run = keenButton("Run", style: .primaryLight, action: act)
+            let run = schedButton("Run", style: .primaryLight, action: act)
             buttons.append(run)
         }
         buttons.append(done)
@@ -414,7 +398,7 @@ private final class TakeoverContent: NSView {
         buttonRow.alignment = .centerY
         buttonRow.spacing = 10
 
-        let content = NSStackView(views: [title, note, KeenDesign.hairline(), buttonRow])
+        let content = NSStackView(views: [title, note, SchedDesign.hairline(), buttonRow])
         content.orientation = .vertical
         content.alignment = .centerX
         content.spacing = 8
@@ -448,7 +432,7 @@ private final class TakeoverContent: NSView {
 // MARK: - Button helper
 
 @MainActor
-private final class KeenActionButton: NSButton {
+private final class SchedActionButton: NSButton {
     private let actionHandler: () -> Void
 
     init(title: String, actionHandler: @escaping () -> Void) {

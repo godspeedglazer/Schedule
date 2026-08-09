@@ -17,7 +17,7 @@ final class NotificationService {
     func requestAuthorizationIfNeeded() {
         registerCategories()
         guard ScheduleStore.shared.store.systemNotificationsEnabled else { return }
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        center.requestAuthorization(options: [.alert]) { _, _ in }
     }
 
     private func registerCategories() {
@@ -40,7 +40,7 @@ final class NotificationService {
         center.setNotificationCategories([category])
     }
 
-    func syncScheduledNotifications(with alarms: [KeenAlarm]) {
+    func syncScheduledNotifications(with alarms: [SchedAlarm]) {
         center.removeAllPendingNotificationRequests()
         guard ScheduleStore.shared.store.systemNotificationsEnabled else { return }
 
@@ -65,11 +65,8 @@ final class NotificationService {
         }
     }
 
-    func deliverImmediately(_ alarm: KeenAlarm) {
-        guard ScheduleStore.shared.store.systemNotificationsEnabled else {
-            if ScheduleStore.shared.store.playSoundOnAlert { NSSound.beep() }
-            return
-        }
+    func deliverImmediately(_ alarm: SchedAlarm) {
+        guard ScheduleStore.shared.store.systemNotificationsEnabled else { return }
         let request = UNNotificationRequest(
             identifier: identifierPrefix + "instant." + UUID().uuidString,
             content: content(for: alarm),
@@ -83,8 +80,7 @@ final class NotificationService {
             let result: (String, Bool)
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
-                let soundReady = settings.soundSetting == .enabled
-                result = (soundReady ? "Notifications and sound are ready" : "Notifications allowed · sound is off in System Settings", soundReady)
+                result = ("Notifications are ready", true)
             case .denied:
                 result = ("Notifications are blocked in System Settings", false)
             case .notDetermined:
@@ -97,10 +93,10 @@ final class NotificationService {
     }
 
     func deliverTest() {
-        playLocalSound()
+        AlarmAudioService.shared.preview(ScheduleStore.shared.store.defaultSound)
         guard ScheduleStore.shared.store.systemNotificationsEnabled else { return }
         requestAuthorizationIfNeeded()
-        let test = KeenAlarm(
+        let test = SchedAlarm(
             title: "Sched test",
             note: "Sound, Snooze, and Done are ready.",
             fireAt: .now,
@@ -109,11 +105,6 @@ final class NotificationService {
         let testContent = content(for: test)
         testContent.sound = nil // local preview above prevents a confusing double sound
         center.add(UNNotificationRequest(identifier: identifierPrefix + "test", content: testContent, trigger: nil))
-    }
-
-    private func playLocalSound() {
-        if let sound = NSSound(named: NSSound.Name("Glass")) { sound.play() }
-        else { NSSound.beep() }
     }
 
     func handle(
@@ -130,7 +121,7 @@ final class NotificationService {
             let id = alarmID.flatMap(UUID.init(uuidString:))
             var alarm = id.flatMap { alarmID in
                 ScheduleStore.shared.store.alarms.first(where: { $0.id == alarmID })
-            } ?? KeenAlarm(
+            } ?? SchedAlarm(
                 title: title,
                 note: body,
                 fireAt: .now,
@@ -143,6 +134,7 @@ final class NotificationService {
             alarm.pausedRemainingSeconds = nil
             ScheduleStore.shared.upsert(alarm)
             if let id {
+                AlarmAudioService.shared.stop(alarmID: id)
                 InterventionManager.shared.dismiss(alarmID: id)
             } else {
                 InterventionManager.shared.dismissAll()
@@ -150,6 +142,7 @@ final class NotificationService {
 
         case doneActionIdentifier, UNNotificationDismissActionIdentifier:
             if let id = alarmID.flatMap(UUID.init(uuidString:)) {
+                AlarmAudioService.shared.stop(alarmID: id)
                 InterventionManager.shared.dismiss(alarmID: id)
             } else {
                 InterventionManager.shared.dismissAll()
@@ -164,12 +157,12 @@ final class NotificationService {
         }
     }
 
-    private func content(for alarm: KeenAlarm) -> UNMutableNotificationContent {
+    private func content(for alarm: SchedAlarm) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = KeenTextLimits.clean(alarm.title, limit: KeenTextLimits.title)
+        content.title = SchedTextLimits.clean(alarm.title, limit: SchedTextLimits.title)
         content.body = alarm.note.isEmpty
             ? "It’s time. Choose Done or Snooze."
-            : KeenTextLimits.clean(alarm.note, limit: KeenTextLimits.note)
+            : SchedTextLimits.clean(alarm.note, limit: SchedTextLimits.note)
         content.categoryIdentifier = categoryIdentifier
         content.userInfo = ["alarmID": alarm.id.uuidString]
         switch alarm.level {
@@ -186,9 +179,7 @@ final class NotificationService {
             content.interruptionLevel = .timeSensitive
             content.relevanceScore = 1.0
         }
-        if ScheduleStore.shared.store.playSoundOnAlert {
-            content.sound = .default
-        }
+        content.sound = nil
         return content
     }
 }

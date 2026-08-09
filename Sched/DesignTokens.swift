@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-enum KeenDesign {
+enum SchedDesign {
     static let canvas = NSColor(calibratedRed: 0.953, green: 0.941, blue: 0.910, alpha: 1)
     static let canvasDeep = NSColor(calibratedRed: 0.925, green: 0.908, blue: 0.875, alpha: 1)
     static let ink = NSColor(calibratedRed: 0.11, green: 0.105, blue: 0.098, alpha: 1)

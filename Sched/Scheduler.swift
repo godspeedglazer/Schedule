@@ -9,7 +9,7 @@ final class Scheduler {
     private let timerQueue = DispatchQueue(label: "com.erichspringer.sched.scheduler", qos: .userInteractive)
     private var storeObserver: UUID?
     private var activeControllers: [UUID: InterventionWindowController] = [:]
-    var onFire: ((KeenAlarm) -> Void)?
+    var onFire: ((SchedAlarm) -> Void)?
 
     private init() {
         storeObserver = ScheduleStore.shared.observeChanges { [weak self] in
@@ -36,31 +36,48 @@ final class Scheduler {
         tick()
     }
 
-    func fireNow(_ alarm: KeenAlarm) {
+    func fireNow(_ alarm: SchedAlarm) {
         present(alarm, deliverSystemNotification: true)
     }
 
-    func scheduleIn(title: String, note: String = "", minutes: Int, level: InterventionLevel? = nil, action: KeenAction = .none) -> KeenAlarm {
+    func scheduleIn(
+        title: String,
+        note: String = "",
+        minutes: Int,
+        level: InterventionLevel? = nil,
+        action: SchedAction = .none,
+        sound: AlarmSound? = nil
+    ) -> SchedAlarm {
         let safeMinutes = max(1, min(10_080, minutes))
-        let alarm = KeenAlarm(
-            title: KeenTextLimits.clean(title, limit: KeenTextLimits.title),
-            note: KeenTextLimits.clean(note, limit: KeenTextLimits.note),
+        let alarm = SchedAlarm(
+            title: SchedTextLimits.clean(title, limit: SchedTextLimits.title),
+            note: SchedTextLimits.clean(note, limit: SchedTextLimits.note),
             fireAt: Date().addingTimeInterval(TimeInterval(safeMinutes * 60)),
             level: level ?? ScheduleStore.shared.store.defaultLevel,
             action: action,
+            sound: sound,
             isTimer: true
         )
         ScheduleStore.shared.upsert(alarm)
         return alarm
     }
 
-    func scheduleAt(title: String, note: String = "", date: Date, level: InterventionLevel? = nil, repeatDaily: Bool = false, action: KeenAction = .none) -> KeenAlarm {
-        let alarm = KeenAlarm(
-            title: KeenTextLimits.clean(title, limit: KeenTextLimits.title),
-            note: KeenTextLimits.clean(note, limit: KeenTextLimits.note),
+    func scheduleAt(
+        title: String,
+        note: String = "",
+        date: Date,
+        level: InterventionLevel? = nil,
+        repeatDaily: Bool = false,
+        action: SchedAction = .none,
+        sound: AlarmSound? = nil
+    ) -> SchedAlarm {
+        let alarm = SchedAlarm(
+            title: SchedTextLimits.clean(title, limit: SchedTextLimits.title),
+            note: SchedTextLimits.clean(note, limit: SchedTextLimits.note),
             fireAt: date,
             level: level ?? ScheduleStore.shared.store.defaultLevel,
             action: action,
+            sound: sound,
             repeatDaily: repeatDaily
         )
         ScheduleStore.shared.upsert(alarm)
@@ -100,12 +117,10 @@ final class Scheduler {
         }
     }
 
-    private func present(_ alarm: KeenAlarm, deliverSystemNotification: Bool) {
+    private func present(_ alarm: SchedAlarm, deliverSystemNotification: Bool) {
+        AlarmAudioService.shared.play(for: alarm)
         if deliverSystemNotification {
             NotificationService.shared.deliverImmediately(alarm)
-        } else if ScheduleStore.shared.store.playSoundOnAlert,
-                  !ScheduleStore.shared.store.systemNotificationsEnabled {
-            NSSound.beep()
         }
         let controller = InterventionWindowController(alarm: alarm) { [weak self] in
             self?.activeControllers.removeValue(forKey: alarm.id)
@@ -114,7 +129,7 @@ final class Scheduler {
         onFire?(alarm)
     }
 
-    private func handleRecurrence(_ alarm: KeenAlarm) {
+    private func handleRecurrence(_ alarm: SchedAlarm) {
         if alarm.repeatDaily {
             var next = alarm
             var nextFire = alarm.fireAt

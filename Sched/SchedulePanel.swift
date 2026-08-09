@@ -1,15 +1,15 @@
 import AppKit
 
 @MainActor
-final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
-    private let hero = KeenHeroStrip()
+final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
+    private let hero = SchedHeroStrip()
     private let listHeader = NSTextField(labelWithString: "Alarms")
     private let cardStack = NSStackView()
-    private let listDocument = KeenFlippedView()
+    private let listDocument = SchedFlippedView()
     private let scroll = NSScrollView()
     private let listEmpty = NSTextField(labelWithString: "No reminders yet. Add a daily or one-time reminder.\n“Make time visible.”")
-    private let inspectorGlass = KeenGlassSurface(
-        cornerRadius: KeenDesign.railCorner,
+    private let inspectorGlass = SchedGlassSurface(
+        cornerRadius: SchedDesign.railCorner,
         tint: NSColor.white.withAlphaComponent(0.14)
     )
     private let mainColumn = NSView()
@@ -21,21 +21,32 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
     private var inspectorFields: [NSView] = []
     private var isLoadingInspector = false
 
-    private let titleGlass = KeenGlassField(placeholder: "Morning focus")
-    private let noteGlass = KeenGlassField(placeholder: "What should future-you know?")
+    private let titleGlass = SchedGlassField(placeholder: "Morning focus")
+    private let noteGlass = SchedGlassField(placeholder: "What should future-you know?")
     private var titleField: NSTextField { titleGlass.field }
     private var noteField: NSTextField { noteGlass.field }
     private let datePicker = NSDatePicker()
     private let levelPopup = NSPopUpButton()
+    private let soundPopup = NSPopUpButton()
+    private let previewSoundButton = SchedGhostButton("Preview Sound", action: #selector(previewInspectorSound), target: nil)
     private let repeatCheck = NSButton(checkboxWithTitle: "Repeats every day", target: nil, action: nil)
     private let enabledCheck = NSButton(checkboxWithTitle: "Active", target: nil, action: nil)
     private let actionPopup = NSPopUpButton()
-    private let actionGlass = KeenGlassField(placeholder: "Shortcut name")
+    private let actionGlass = SchedGlassField(placeholder: "Shortcut name")
     private var actionField: NSTextField { actionGlass.field }
-    private let actionAppPopup = keenAppPopup()
-    private let refreshActionAppsButton = KeenGhostButton("Refresh", action: #selector(reloadActionAppsMenu), target: nil)
-    private let actionPayloadLabel = keenFieldLabel("Shortcut name")
+    private let actionAppPopup = schedAppPopup()
+    private let refreshActionAppsButton = SchedGhostButton("Refresh", action: #selector(reloadActionAppsMenu), target: nil)
+    private let actionPayloadLabel = schedFieldLabel("Shortcut name")
     private let emptyLabel = NSTextField(wrappingLabelWithString: "Choose a reminder to shape its message, timing, and follow-up action.")
+
+    func selectAlarm(_ id: UUID) {
+        guard ScheduleStore.shared.store.alarms.contains(where: { $0.id == id }) else { return }
+        selectedID = id
+        if isViewLoaded {
+            updateSelectionHighlight()
+            reloadInspector()
+        }
+    }
 
     override func loadView() {
         view = NSView()
@@ -43,16 +54,16 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         view.layer?.backgroundColor = .clear
 
         let title = NSTextField(labelWithString: "Plan")
-        title.font = KeenDesign.display(28)
-        KeenDesign.label(title)
+        title.font = SchedDesign.display(28)
+        SchedDesign.label(title)
         let sub = NSTextField(labelWithString: "Upcoming reminders and actions.")
-        sub.font = KeenDesign.body(14)
-        KeenDesign.label(sub, color: KeenDesign.inkMuted)
+        sub.font = SchedDesign.body(14)
+        SchedDesign.label(sub, color: SchedDesign.inkMuted)
 
-        let toolbarGlass = KeenGlassSurface(cornerRadius: 12, tint: NSColor.white.withAlphaComponent(0.08))
-        let addDaily = KeenPrimaryButton("＋ Daily", action: #selector(addDaily), target: self)
-        let addOnce = KeenGhostButton("One-time", action: #selector(addOneShot), target: self)
-        let del = KeenGhostButton("Delete", action: #selector(deleteSelected), target: self)
+        let toolbarGlass = SchedGlassSurface(cornerRadius: 12, tint: NSColor.white.withAlphaComponent(0.08))
+        let addDaily = SchedPrimaryButton("＋ Daily", action: #selector(addDaily), target: self)
+        let addOnce = SchedGhostButton("One-time", action: #selector(addOneShot), target: self)
+        let del = SchedGhostButton("Delete", action: #selector(deleteSelected), target: self)
         for btn in [addDaily, addOnce, del] {
             btn.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
@@ -68,11 +79,11 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
             toolbar.bottomAnchor.constraint(equalTo: toolbarGlass.innerContentView.bottomAnchor, constant: -6),
         ])
 
-        listHeader.font = KeenDesign.section(11)
-        KeenDesign.label(listHeader, color: KeenDesign.inkFaint)
+        listHeader.font = SchedDesign.section(11)
+        SchedDesign.label(listHeader, color: SchedDesign.inkFaint)
 
-        listEmpty.font = KeenDesign.body(13)
-        listEmpty.textColor = KeenDesign.inkFaint
+        listEmpty.font = SchedDesign.body(13)
+        listEmpty.textColor = SchedDesign.inkFaint
         listEmpty.alignment = .center
         listEmpty.maximumNumberOfLines = 3
         listEmpty.isHidden = true
@@ -113,7 +124,7 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
             ])
         }
 
-        let widthConstraint = inspectorGlass.widthAnchor.constraint(equalToConstant: KeenDesign.inspectorWidth)
+        let widthConstraint = inspectorGlass.widthAnchor.constraint(equalToConstant: SchedDesign.inspectorWidth)
         widthConstraint.isActive = true
         inspectorWidthConstraint = widthConstraint
         buildInspector()
@@ -130,7 +141,7 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         view.addSubview(mainColumn)
         view.addSubview(inspectorGlass)
 
-        let mainToInspector = mainColumn.trailingAnchor.constraint(equalTo: inspectorGlass.leadingAnchor, constant: -KeenDesign.contentGap)
+        let mainToInspector = mainColumn.trailingAnchor.constraint(equalTo: inspectorGlass.leadingAnchor, constant: -SchedDesign.contentGap)
         mainToInspector.priority = .required
 
         NSLayoutConstraint.activate([
@@ -190,7 +201,7 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
     private func buildInspector() {
         schedConfigureScroll(inspectorScroll)
 
-        let inspectorDocument = KeenFlippedView()
+        let inspectorDocument = SchedFlippedView()
         inspectorDocument.translatesAutoresizingMaskIntoConstraints = false
         inspectorScroll.documentView = inspectorDocument
 
@@ -200,30 +211,30 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        emptyLabel.font = KeenDesign.body(13)
-        KeenDesign.label(emptyLabel, color: KeenDesign.inkFaint)
+        emptyLabel.font = SchedDesign.body(13)
+        SchedDesign.label(emptyLabel, color: SchedDesign.inkFaint)
 
         let inspectorTitle = NSTextField(labelWithString: "Reminder details")
-        inspectorTitle.font = KeenDesign.title(18)
-        KeenDesign.label(inspectorTitle)
+        inspectorTitle.font = SchedDesign.title(18)
+        SchedDesign.label(inspectorTitle)
         let closeInspectorButton = NSButton(
             image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close reminder details") ?? NSImage(),
             target: self,
             action: #selector(closeInspector)
         )
         closeInspectorButton.isBordered = false
-        closeInspectorButton.contentTintColor = KeenDesign.inkMuted
+        closeInspectorButton.contentTintColor = SchedDesign.inkMuted
         closeInspectorButton.toolTip = "Close reminder details"
         let inspectorHeaderSpacer = NSView()
         inspectorHeaderSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let inspectorHeader = NSStackView(views: [inspectorTitle, inspectorHeaderSpacer, closeInspectorButton])
         inspectorHeader.orientation = .horizontal
         inspectorHeader.alignment = .centerY
-        inspectorHeader.widthAnchor.constraint(equalToConstant: KeenDesign.inspectorWidth - 32).isActive = true
+        inspectorHeader.widthAnchor.constraint(equalToConstant: SchedDesign.inspectorWidth - 32).isActive = true
         let inspectorHelp = NSTextField(wrappingLabelWithString: "Write the message you’ll want to see when this moment arrives.")
-        inspectorHelp.font = KeenDesign.body(12)
-        KeenDesign.label(inspectorHelp, color: KeenDesign.inkMuted)
-        inspectorHelp.preferredMaxLayoutWidth = KeenDesign.inspectorWidth - 32
+        inspectorHelp.font = SchedDesign.body(12)
+        SchedDesign.label(inspectorHelp, color: SchedDesign.inkMuted)
+        inspectorHelp.preferredMaxLayoutWidth = SchedDesign.inspectorWidth - 32
 
         datePicker.datePickerElements = [.yearMonthDay, .hourMinute]
         datePicker.datePickerStyle = .textFieldAndStepper
@@ -234,8 +245,13 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         schedStyleSelector(levelPopup)
         levelPopup.target = self
         levelPopup.action = #selector(saveInspector)
+        schedStyleSelector(soundPopup)
+        soundPopup.target = self
+        soundPopup.action = #selector(saveInspector)
+        previewSoundButton.target = self
+        reloadSoundChoices(selected: nil)
         actionPopup.removeAllItems()
-        for kind in KeenActionKind.userFacingCases {
+        for kind in SchedActionKind.userFacingCases {
             actionPopup.addItem(withTitle: kind.displayName)
         }
         actionPopup.target = self
@@ -266,16 +282,17 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         refreshActionAppsButton.isHidden = true
 
         let autoSave = NSTextField(labelWithString: "Changes save automatically")
-        autoSave.font = KeenDesign.caption(11)
-        KeenDesign.label(autoSave, color: KeenDesign.inkFaint)
+        autoSave.font = SchedDesign.caption(11)
+        SchedDesign.label(autoSave, color: SchedDesign.inkFaint)
 
         let rows: [NSView] = [
-            keenFieldLabel("Name"), titleGlass,
-            keenFieldLabel("Note"), noteGlass,
-            keenFieldLabel("When"), datePicker,
-            keenFieldLabel("Intensity"), levelPopup,
+            schedFieldLabel("Name"), titleGlass,
+            schedFieldLabel("Note"), noteGlass,
+            schedFieldLabel("When"), datePicker,
+            schedFieldLabel("Intensity"), levelPopup,
+            schedFieldLabel("Sound"), soundPopup, previewSoundButton,
             repeatCheck, enabledCheck,
-            keenFieldLabel("Then run"), actionPopup,
+            schedFieldLabel("Then run"), actionPopup,
             actionPayloadLabel, actionGlass, actionAppPopup, refreshActionAppsButton,
             autoSave,
         ]
@@ -286,8 +303,8 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         stack.addArrangedSubview(emptyLabel)
         for row in rows {
             stack.addArrangedSubview(row)
-            if row is KeenGlassField || row is NSPopUpButton || row is NSDatePicker {
-                row.widthAnchor.constraint(equalToConstant: KeenDesign.inspectorWidth - 32).isActive = true
+            if row is SchedGlassField || row is NSPopUpButton || row is NSDatePicker {
+                row.widthAnchor.constraint(equalToConstant: SchedDesign.inspectorWidth - 32).isActive = true
             }
         }
 
@@ -316,7 +333,7 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
 
     private func setInspectorVisible(_ on: Bool) {
         guard let inspectorWidthConstraint else { return }
-        inspectorWidthConstraint.constant = on ? KeenDesign.inspectorWidth : 0
+        inspectorWidthConstraint.constant = on ? SchedDesign.inspectorWidth : 0
         inspectorGlass.isHidden = !on
         inspectorGlass.alphaValue = 1
         emptyLabel.isHidden = on
@@ -330,7 +347,7 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         }
     }
 
-    private func sortedAlarms() -> [KeenAlarm] {
+    private func sortedAlarms() -> [SchedAlarm] {
         pruneStaleAlarms()
         return ScheduleStore.shared.store.alarms
             .filter(\.enabled)
@@ -346,8 +363,8 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
             self.selectedID = nil
         }
 
-        var existingCards: [UUID: KeenAlarmCard] = [:]
-        for case let card as KeenAlarmCard in cardStack.arrangedSubviews {
+        var existingCards: [UUID: SchedAlarmCard] = [:]
+        for case let card as SchedAlarmCard in cardStack.arrangedSubviews {
             existingCards[card.alarmID] = card
         }
         cardStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -357,12 +374,12 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         listHeightConstraint?.constant = min(320, max(100, CGFloat(alarms.count * 84 + 8)))
 
         for alarm in alarms {
-            let card: KeenAlarmCard
+            let card: SchedAlarmCard
             if let reused = existingCards[alarm.id] {
                 card = reused
                 card.refresh(alarm: alarm, selected: alarm.id == selectedID)
             } else {
-                card = KeenAlarmCard(alarm: alarm, selected: alarm.id == selectedID)
+                card = SchedAlarmCard(alarm: alarm, selected: alarm.id == selectedID)
             }
             card.cardDelegate = self
             cardStack.addArrangedSubview(card)
@@ -377,7 +394,7 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
     }
 
     private func updateSelectionHighlight() {
-        for case let card as KeenAlarmCard in cardStack.arrangedSubviews {
+        for case let card as SchedAlarmCard in cardStack.arrangedSubviews {
             card.setSelected(card.alarmID == selectedID)
         }
     }
@@ -386,6 +403,44 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         selectedID = selectedID == id ? nil : id
         updateSelectionHighlight()
         reloadInspector()
+    }
+
+    func alarmCardEdit(_ id: UUID) {
+        selectedID = id
+        updateSelectionHighlight()
+        reloadInspector()
+    }
+
+    func alarmCardMoveLater(_ id: UUID, minutes: Int) {
+        guard var alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
+        alarm.fireAt = alarm.fireAt.addingTimeInterval(TimeInterval(minutes * 60))
+        ScheduleStore.shared.upsert(alarm)
+    }
+
+    func alarmCardDuplicate(_ id: UUID) {
+        guard var alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
+        alarm.id = UUID()
+        alarm.title = SchedTextLimits.clean("\(alarm.title) copy", limit: SchedTextLimits.title)
+        alarm.enabled = true
+        alarm.pausedRemainingSeconds = nil
+        selectedID = alarm.id
+        ScheduleStore.shared.upsert(alarm)
+    }
+
+    func alarmCardDisable(_ id: UUID) {
+        guard var alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
+        alarm.enabled = false
+        if selectedID == id { selectedID = nil }
+        AlarmAudioService.shared.stop(alarmID: id)
+        InterventionManager.shared.dismiss(alarmID: id)
+        ScheduleStore.shared.upsert(alarm)
+    }
+
+    func alarmCardDelete(_ id: UUID) {
+        if selectedID == id { selectedID = nil }
+        AlarmAudioService.shared.stop(alarmID: id)
+        InterventionManager.shared.dismiss(alarmID: id)
+        ScheduleStore.shared.remove(id: id)
     }
 
     @objc private func closeInspector() {
@@ -404,9 +459,10 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         noteField.stringValue = alarm.note
         datePicker.dateValue = alarm.fireAt
         levelPopup.selectItem(at: InterventionLevel.allCases.firstIndex(of: alarm.level) ?? 0)
+        reloadSoundChoices(selected: alarm.sound)
         repeatCheck.state = alarm.repeatDaily ? .on : .off
         enabledCheck.state = alarm.enabled ? .on : .off
-        actionPopup.selectItem(at: KeenActionKind.userFacingCases.firstIndex(of: alarm.action.kind) ?? 0)
+        actionPopup.selectItem(at: SchedActionKind.userFacingCases.firstIndex(of: alarm.action.kind) ?? 0)
         actionField.stringValue = alarm.action.payload
         updateActionFieldLabel()
         if alarm.action.kind == .quitApp {
@@ -415,13 +471,52 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         isLoadingInspector = false
     }
 
+    private func reloadSoundChoices(selected: AlarmSound?) {
+        soundPopup.removeAllItems()
+        soundPopup.addItem(withTitle: "Default · \(ScheduleStore.shared.store.defaultSound.displayName)")
+        soundPopup.lastItem?.representedObject = nil
+        soundPopup.addItem(withTitle: "None")
+        soundPopup.lastItem?.representedObject = AlarmSound.none
+        soundPopup.menu?.addItem(.separator())
+
+        if let selected, case .externalFile = selected {
+            soundPopup.addItem(withTitle: "Linked · \(selected.displayName)")
+            soundPopup.lastItem?.representedObject = selected
+            soundPopup.menu?.addItem(.separator())
+        }
+
+        for sound in AlarmAudioService.shared.availableSystemSounds() {
+            soundPopup.addItem(withTitle: sound.displayName)
+            soundPopup.lastItem?.representedObject = sound
+        }
+        let imported = AlarmAudioService.shared.availableImportedSounds()
+        if !imported.isEmpty {
+            soundPopup.menu?.addItem(.separator())
+            for sound in imported {
+                soundPopup.addItem(withTitle: "Imported · \(sound.displayName)")
+                soundPopup.lastItem?.representedObject = sound
+            }
+        }
+
+        if let selected, let index = soundPopup.itemArray.firstIndex(where: { ($0.representedObject as? AlarmSound) == selected }) {
+            soundPopup.selectItem(at: index)
+        } else {
+            soundPopup.selectItem(at: 0)
+        }
+    }
+
+    @objc private func previewInspectorSound() {
+        let sound = (soundPopup.selectedItem?.representedObject as? AlarmSound) ?? ScheduleStore.shared.store.defaultSound
+        AlarmAudioService.shared.preview(sound)
+    }
+
     @objc private func reloadActionAppsMenu() {
         let name = actionField.stringValue
         RunningApps.populate(actionAppPopup, selectedBundleId: nil, selectedName: name.isEmpty ? nil : name)
     }
 
     private func actionPayload() -> String {
-        let kind = KeenActionKind.userFacingCases[actionPopup.indexOfSelectedItem]
+        let kind = SchedActionKind.userFacingCases[actionPopup.indexOfSelectedItem]
         if kind == .quitApp, let app = RunningApps.selectedApp(from: actionAppPopup) {
             return app.name
         }
@@ -440,7 +535,7 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
     }
 
     private func updateActionFieldLabel() {
-        let kind = KeenActionKind.userFacingCases[actionPopup.indexOfSelectedItem]
+        let kind = SchedActionKind.userFacingCases[actionPopup.indexOfSelectedItem]
         let label: String
         let placeholder: String
         let isQuit = kind == .quitApp
@@ -475,21 +570,22 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
     @objc private func saveInspector() {
         guard !isLoadingInspector, let id = selectedID,
               var alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
-        let cleanTitle = KeenTextLimits.clean(titleField.stringValue, limit: KeenTextLimits.title)
+        let cleanTitle = SchedTextLimits.clean(titleField.stringValue, limit: SchedTextLimits.title)
         alarm.title = cleanTitle.isEmpty ? "Alarm" : cleanTitle
-        alarm.note = KeenTextLimits.clean(noteField.stringValue, limit: KeenTextLimits.note)
+        alarm.note = SchedTextLimits.clean(noteField.stringValue, limit: SchedTextLimits.note)
         alarm.fireAt = datePicker.dateValue
         alarm.level = InterventionLevel.allCases[levelPopup.indexOfSelectedItem]
+        alarm.sound = soundPopup.selectedItem?.representedObject as? AlarmSound
         alarm.repeatDaily = repeatCheck.state == .on
         alarm.enabled = enabledCheck.state == .on
-        alarm.action = KeenAction.from(
-            kind: KeenActionKind.userFacingCases[actionPopup.indexOfSelectedItem],
-            payload: KeenTextLimits.clean(actionPayload(), limit: KeenTextLimits.action)
+        alarm.action = SchedAction.from(
+            kind: SchedActionKind.userFacingCases[actionPopup.indexOfSelectedItem],
+            payload: SchedTextLimits.clean(actionPayload(), limit: SchedTextLimits.action)
         )
         ScheduleStore.shared.upsert(alarm, notifyOnChange: false)
         hero.refresh()
         if let card = cardStack.arrangedSubviews
-            .compactMap({ $0 as? KeenAlarmCard })
+            .compactMap({ $0 as? SchedAlarmCard })
             .first(where: { $0.alarmID == alarm.id }) {
             card.refresh(alarm: alarm, selected: true)
         }
@@ -503,14 +599,14 @@ final class SchedulePanelController: NSViewController, KeenAlarmCardDelegate {
         if fireAt <= .now {
             fireAt = cal.date(byAdding: .day, value: 1, to: fireAt) ?? Date().addingTimeInterval(86400)
         }
-        let alarm = KeenAlarm(title: "New daily", fireAt: fireAt, level: ScheduleStore.shared.store.defaultLevel, repeatDaily: true)
+        let alarm = SchedAlarm(title: "New daily", fireAt: fireAt, level: ScheduleStore.shared.store.defaultLevel, repeatDaily: true)
         selectedID = alarm.id
         ScheduleStore.shared.upsert(alarm)
         view.window?.makeFirstResponder(titleField)
     }
 
     @objc private func addOneShot() {
-        let alarm = KeenAlarm(title: "New reminder", fireAt: Date().addingTimeInterval(1800), level: ScheduleStore.shared.store.defaultLevel)
+        let alarm = SchedAlarm(title: "New reminder", fireAt: Date().addingTimeInterval(1800), level: ScheduleStore.shared.store.defaultLevel)
         selectedID = alarm.id
         ScheduleStore.shared.upsert(alarm)
         view.window?.makeFirstResponder(titleField)

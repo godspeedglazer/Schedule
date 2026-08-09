@@ -32,7 +32,7 @@ enum ShortcutsBridge {
         }
     }
 
-    static func perform(_ action: KeenAction) {
+    static func perform(_ action: SchedAction) {
         switch action {
         case .none:
             break

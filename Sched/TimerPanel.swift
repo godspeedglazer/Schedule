@@ -10,18 +10,19 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         target: nil,
         action: nil
     )
-    private let titleGlass = KeenGlassField(placeholder: "Focus block")
-    private let noteGlass = KeenGlassField(placeholder: "Optional note")
+    private let titleGlass = SchedGlassField(placeholder: "Focus block")
+    private let noteGlass = SchedGlassField(placeholder: "Optional note")
     private var titleField: NSTextField { titleGlass.field }
     private var noteField: NSTextField { noteGlass.field }
     private let actionPopup = NSPopUpButton()
-    private let actionGlass = KeenGlassField(placeholder: "Shortcut name")
+    private let actionGlass = SchedGlassField(placeholder: "Shortcut name")
     private var actionField: NSTextField { actionGlass.field }
-    private let actionAppPopup = keenAppPopup()
-    private let refreshActionAppsButton = KeenGhostButton("Refresh", action: #selector(reloadActionAppsMenu), target: nil)
-    private let actionPayloadLabel = keenFieldLabel("Shortcut name")
+    private let actionAppPopup = schedAppPopup()
+    private let refreshActionAppsButton = SchedGhostButton("Refresh", action: #selector(reloadActionAppsMenu), target: nil)
+    private let actionPayloadLabel = schedFieldLabel("Shortcut name")
     private let activeTitle = NSTextField(labelWithString: "No timer running")
     private let activeCountdown = NSTextField(labelWithString: "Set one below")
+    private let activeMeta = NSTextField(labelWithString: "")
     private let activeControls = NSStackView()
     private var activeTimerID: UUID?
     private var storeObserver: UUID?
@@ -33,12 +34,12 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         view.layer?.backgroundColor = .clear
 
         let title = NSTextField(labelWithString: "Timer")
-        title.font = KeenDesign.display(28)
-        KeenDesign.label(title)
+        title.font = SchedDesign.display(28)
+        SchedDesign.label(title)
 
-        let durationGlass = KeenGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.2))
-        let detailsGlass = KeenGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.2))
-        let activeGlass = KeenGlassSurface(cornerRadius: 16, tint: KeenDesign.bubbleSelected)
+        let durationGlass = SchedGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.2))
+        let detailsGlass = SchedGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.2))
+        let activeGlass = SchedGlassSurface(cornerRadius: 16, tint: SchedDesign.bubbleSelected)
 
         let numberFormatter = NumberFormatter()
         numberFormatter.numberStyle = .none
@@ -46,7 +47,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         numberFormatter.minimum = 1
         numberFormatter.maximum = 480
         minutesLabel.formatter = numberFormatter
-        minutesLabel.font = KeenDesign.mono(40)
+        minutesLabel.font = SchedDesign.mono(40)
         minutesLabel.alignment = .right
         minutesLabel.focusRingType = .none
         minutesLabel.target = self
@@ -55,7 +56,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         minutesLabel.translatesAutoresizingMaskIntoConstraints = false
         minutesLabel.widthAnchor.constraint(equalToConstant: 112).isActive = true
         minutesLabel.heightAnchor.constraint(equalToConstant: 58).isActive = true
-        KeenDesign.label(minutesLabel, color: KeenDesign.accent)
+        SchedDesign.label(minutesLabel, color: SchedDesign.accent)
         minutesLabel.isEditable = true
         minutesLabel.isSelectable = true
         minutesLabel.isBezeled = true
@@ -75,11 +76,11 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         schedStyleSelector(presetSelector)
 
         let minCaption = NSTextField(labelWithString: "MINUTES")
-        minCaption.font = KeenDesign.section(11)
-        KeenDesign.label(minCaption, color: KeenDesign.inkMuted)
+        minCaption.font = SchedDesign.section(11)
+        SchedDesign.label(minCaption, color: SchedDesign.inkMuted)
 
         actionPopup.removeAllItems()
-        for kind in KeenActionKind.userFacingCases {
+        for kind in SchedActionKind.userFacingCases {
             actionPopup.addItem(withTitle: kind.displayName)
         }
         actionPopup.target = self
@@ -91,14 +92,16 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         refreshActionAppsButton.isHidden = true
         updateActionFieldLabel()
 
-        activeTitle.font = KeenDesign.title(15)
-        KeenDesign.label(activeTitle)
-        activeCountdown.font = KeenDesign.mono(20)
-        KeenDesign.label(activeCountdown, color: KeenDesign.accent)
+        activeTitle.font = SchedDesign.title(15)
+        SchedDesign.label(activeTitle)
+        activeCountdown.font = SchedDesign.mono(20)
+        SchedDesign.label(activeCountdown, color: SchedDesign.accent)
+        activeMeta.font = SchedDesign.caption(11)
+        SchedDesign.label(activeMeta, color: SchedDesign.inkMuted)
         activeControls.orientation = .horizontal
         activeControls.alignment = .centerY
         activeControls.spacing = 8
-        let activeText = NSStackView(views: [activeTitle, activeCountdown])
+        let activeText = NSStackView(views: [activeTitle, activeCountdown, activeMeta])
         activeText.orientation = .vertical
         activeText.alignment = .leading
         activeText.spacing = 2
@@ -117,7 +120,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
             activeRow.bottomAnchor.constraint(equalTo: activeGlass.innerContentView.bottomAnchor, constant: -14),
         ])
 
-        let start = KeenPrimaryButton("Start timer", action: #selector(start), target: self)
+        let start = SchedPrimaryButton("Start timer", action: #selector(start), target: self)
         start.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
 
         let minuteRow = NSStackView(views: [minutesLabel, minutesStepper])
@@ -126,7 +129,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         minuteRow.spacing = 12
 
         let durationStack = NSStackView(views: [
-            minCaption, minuteRow, keenFieldLabel("Quick duration"), presetSelector,
+            minCaption, minuteRow, schedFieldLabel("Quick duration"), presetSelector,
         ])
         durationStack.orientation = .vertical
         durationStack.alignment = .leading
@@ -144,9 +147,9 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         detailsStack.alignment = .leading
         detailsStack.spacing = 10
         detailsStack.translatesAutoresizingMaskIntoConstraints = false
-        [keenFieldLabel("Title"), titleGlass,
-         keenFieldLabel("Note"), noteGlass,
-         keenFieldLabel("Then run"), actionPopup,
+        [schedFieldLabel("Title"), titleGlass,
+         schedFieldLabel("Note"), noteGlass,
+         schedFieldLabel("Then run"), actionPopup,
          actionPayloadLabel, actionGlass, actionAppPopup, refreshActionAppsButton,
          actionRow].forEach { detailsStack.addArrangedSubview($0) }
         titleField.stringValue = "Focus block"
@@ -217,7 +220,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
     }
 
     private func actionPayload() -> String {
-        let kind = KeenActionKind.userFacingCases[actionPopup.indexOfSelectedItem]
+        let kind = SchedActionKind.userFacingCases[actionPopup.indexOfSelectedItem]
         if kind == .quitApp, let app = RunningApps.selectedApp(from: actionAppPopup) {
             return app.name
         }
@@ -227,7 +230,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
     @objc private func actionKindChanged() { updateActionFieldLabel() }
 
     private func updateActionFieldLabel() {
-        let kind = KeenActionKind.userFacingCases[actionPopup.indexOfSelectedItem]
+        let kind = SchedActionKind.userFacingCases[actionPopup.indexOfSelectedItem]
         let label: String
         let placeholder: String
         let isQuit = kind == .quitApp
@@ -290,14 +293,14 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
     }
 
     @objc private func start() {
-        let action = KeenAction.from(
-            kind: KeenActionKind.userFacingCases[actionPopup.indexOfSelectedItem],
+        let action = SchedAction.from(
+            kind: SchedActionKind.userFacingCases[actionPopup.indexOfSelectedItem],
             payload: actionPayload()
         )
-        _ = Scheduler.shared.scheduleIn(
+        _ = TimerService.shared.start(
+            minutes: max(1, min(480, minutesLabel.integerValue)),
             title: titleField.stringValue.isEmpty ? "Timer" : titleField.stringValue,
             note: noteField.stringValue.isEmpty ? "Timer complete. Take a breath before the next thing." : noteField.stringValue,
-            minutes: max(1, min(480, minutesLabel.integerValue)),
             level: .gentle,
             action: action
         )
@@ -305,70 +308,57 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
     }
 
     private func reloadActiveTimer() {
-        let timers = ScheduleStore.shared.store.alarms
-            .filter { $0.isTimer && (($0.enabled && $0.fireAt > .now) || $0.pausedRemainingSeconds != nil) }
-            .sorted { left, right in
-                let l = left.pausedRemainingSeconds.map(TimeInterval.init) ?? left.fireAt.timeIntervalSinceNow
-                let r = right.pausedRemainingSeconds.map(TimeInterval.init) ?? right.fireAt.timeIntervalSinceNow
-                return l < r
-            }
-        guard let alarm = timers.first else {
+        guard let snapshot = TimerService.shared.snapshot() else {
             activeTimerID = nil
             activeTitle.stringValue = "No timer running"
             activeCountdown.stringValue = "Set one below"
+            activeMeta.stringValue = ""
             activeControls.arrangedSubviews.forEach { $0.removeFromSuperview() }
             return
         }
-        activeTimerID = alarm.id
-        activeTitle.stringValue = timers.count == 1 ? alarm.title : "\(alarm.title) · +\(timers.count - 1) more"
+        activeTimerID = snapshot.id
+        let timerCount = TimerService.shared.activeTimers().count
+        activeTitle.stringValue = timerCount == 1 ? snapshot.title : "\(snapshot.title) · +\(timerCount - 1) more"
         activeControls.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let pauseTitle = alarm.pausedRemainingSeconds == nil ? "Pause" : "Resume"
-        let pause = KeenGhostButton(pauseTitle, action: #selector(pauseOrResume), target: self)
-        let add = KeenGhostButton("+5m", action: #selector(addFiveMinutes), target: self)
-        let cancel = KeenDangerButton("Cancel", action: #selector(cancelTimer), target: self)
-        [pause, add, cancel].forEach { activeControls.addArrangedSubview($0) }
+        let pauseTitle = snapshot.isPaused ? "Resume" : "Pause"
+        let pause = SchedGhostButton(pauseTitle, action: #selector(pauseOrResume), target: self)
+        let add = SchedGhostButton("+5m", action: #selector(addFiveMinutes), target: self)
+        let floating = SchedGhostButton("Float", action: #selector(showFloatingTimer), target: self)
+        let cancel = SchedDangerButton("Cancel", action: #selector(cancelTimer), target: self)
+        [pause, add, floating, cancel].forEach { activeControls.addArrangedSubview($0) }
         updateActiveCountdown()
     }
 
     private func updateActiveCountdown() {
-        guard let id = activeTimerID,
-              let alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
-        let seconds = alarm.pausedRemainingSeconds ?? max(0, Int(alarm.fireAt.timeIntervalSinceNow.rounded(.up)))
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-        let remainder = seconds % 60
-        activeCountdown.stringValue = hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, remainder)
-            : String(format: "%02d:%02d", minutes, remainder)
+        guard let snapshot = TimerService.shared.snapshot(), snapshot.id == activeTimerID else {
+            reloadActiveTimer()
+            return
+        }
+        activeCountdown.stringValue = snapshot.formattedRemaining
+        if snapshot.isPaused {
+            activeMeta.stringValue = "Paused"
+        } else {
+            activeMeta.stringValue = "Ends \(SchedTimeFormat.string(from: snapshot.fireAt))"
+        }
     }
 
     @objc private func pauseOrResume() {
-        guard let id = activeTimerID,
-              var alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
-        if let remaining = alarm.pausedRemainingSeconds {
-            alarm.fireAt = Date().addingTimeInterval(TimeInterval(max(1, remaining)))
-            alarm.pausedRemainingSeconds = nil
-            alarm.enabled = true
-        } else {
-            alarm.pausedRemainingSeconds = max(1, Int(alarm.fireAt.timeIntervalSinceNow.rounded(.up)))
-            alarm.enabled = false
-        }
-        ScheduleStore.shared.upsert(alarm)
+        TimerService.shared.pauseOrResume(id: activeTimerID)
+        reloadActiveTimer()
     }
 
     @objc private func addFiveMinutes() {
-        guard let id = activeTimerID,
-              var alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
-        if let remaining = alarm.pausedRemainingSeconds {
-            alarm.pausedRemainingSeconds = remaining + 300
-        } else {
-            alarm.fireAt = alarm.fireAt.addingTimeInterval(300)
-        }
-        ScheduleStore.shared.upsert(alarm)
+        TimerService.shared.add(minutes: 5, id: activeTimerID)
+        updateActiveCountdown()
+    }
+
+    @objc private func showFloatingTimer() {
+        FloatingTimerController.shared.show()
     }
 
     @objc private func cancelTimer() {
-        guard let id = activeTimerID else { return }
-        ScheduleStore.shared.remove(id: id)
+        TimerService.shared.cancel(id: activeTimerID)
+        reloadActiveTimer()
     }
+
 }
