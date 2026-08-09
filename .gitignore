@@ -20,3 +20,4 @@ launchd/
 .DS_Store
 *.swp
 *~
+*.env
