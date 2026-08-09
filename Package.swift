@@ -2,18 +2,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "Keen",
+    name: "Sched",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "Keen",
-            path: "Sources/Keen",
+            name: "Sched",
+            path: "Sources/Sched",
             resources: [.process("Resources")]
         ),
         .testTarget(
-            name: "KeenTests",
-            dependencies: ["Keen"],
-            path: "Tests/KeenTests"
+            name: "SchedTests",
+            dependencies: ["Sched"],
+            path: "Tests/SchedTests"
         ),
     ]
 )
