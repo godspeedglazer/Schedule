@@ -142,10 +142,18 @@ final class NotificationService {
             alarm.enabled = true
             alarm.pausedRemainingSeconds = nil
             ScheduleStore.shared.upsert(alarm)
-            InterventionManager.shared.dismissAll()
+            if let id {
+                InterventionManager.shared.dismiss(alarmID: id)
+            } else {
+                InterventionManager.shared.dismissAll()
+            }
 
         case doneActionIdentifier, UNNotificationDismissActionIdentifier:
-            InterventionManager.shared.dismissAll()
+            if let id = alarmID.flatMap(UUID.init(uuidString:)) {
+                InterventionManager.shared.dismiss(alarmID: id)
+            } else {
+                InterventionManager.shared.dismissAll()
+            }
 
         case UNNotificationDefaultActionIdentifier:
             MainWindowController.shared.showSection(.schedule)
@@ -164,6 +172,20 @@ final class NotificationService {
             : KeenTextLimits.clean(alarm.note, limit: KeenTextLimits.note)
         content.categoryIdentifier = categoryIdentifier
         content.userInfo = ["alarmID": alarm.id.uuidString]
+        switch alarm.level {
+        case .gentle:
+            content.subtitle = "Reminder"
+            content.interruptionLevel = .active
+            content.relevanceScore = 0.5
+        case .focus:
+            content.subtitle = "Focus reminder"
+            content.interruptionLevel = .timeSensitive
+            content.relevanceScore = 0.8
+        case .takeover:
+            content.subtitle = "Takeover reminder"
+            content.interruptionLevel = .timeSensitive
+            content.relevanceScore = 1.0
+        }
         if ScheduleStore.shared.store.playSoundOnAlert {
             content.sound = .default
         }

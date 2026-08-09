@@ -15,7 +15,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.handleIdle(idle)
         }
 
-        NotificationCenter.default.addObserver(self, selector: #selector(dismissAll), name: .keenDismissAll, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(dismissAllNotification(_:)), name: .keenDismissAll, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(workspaceDidWake(_:)),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(systemTimeDidChange(_:)),
+            name: .NSSystemClockDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(systemTimeDidChange(_:)),
+            name: .NSSystemTimeZoneDidChange,
+            object: nil
+        )
 
         handleCommandLineURLs()
         LoginItemHelper.sync(enabled: ScheduleStore.shared.store.launchAtLogin)
@@ -80,6 +98,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc private func dismissAll() {
         InterventionManager.shared.dismissAll()
+    }
+
+    @objc private func dismissAllNotification(_ notification: Notification) {
+        InterventionManager.shared.dismissAll()
+    }
+
+    @objc private func workspaceDidWake(_ notification: Notification) {
+        Scheduler.shared.handleSystemWake()
+        AppWatchMonitor.shared.evaluateNow()
+        AccessibilityMonitor.shared.start()
+        clockStatus.refreshForSystemTimeChange()
+    }
+
+    @objc private func systemTimeDidChange(_ notification: Notification) {
+        Scheduler.shared.handleSystemTimeChange()
+        clockStatus.refreshForSystemTimeChange()
     }
 
     nonisolated func userNotificationCenter(

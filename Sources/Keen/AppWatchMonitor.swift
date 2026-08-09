@@ -27,6 +27,10 @@ final class AppWatchMonitor {
         fired.removeAll()
     }
 
+    func evaluateNow() {
+        evaluate()
+    }
+
     private func evaluate() {
         let selfBundle = Bundle.main.bundleIdentifier
         let running = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier != selfBundle }

@@ -17,12 +17,18 @@ final class InterventionManager {
         controllers.removeValue(forKey: ObjectIdentifier(controller))
     }
 
+    func dismiss(alarmID: UUID) {
+        let matching = controllers.values.filter { $0.alarmID == alarmID }
+        for controller in matching {
+            controller.forceDismiss()
+        }
+    }
+
     func dismissAll() {
         for controller in Array(controllers.values) {
             controller.forceDismiss()
         }
         controllers.removeAll()
-        NSApp.hide(nil)
     }
 
     var hasActive: Bool { !controllers.isEmpty }

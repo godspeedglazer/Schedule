@@ -5,6 +5,7 @@ import Foundation
 final class InterventionWindowController: NSWindowController, NSWindowDelegate {
     private static let gentleOriginKey = "Sched.GentleReminderOrigin"
     private let alarm: KeenAlarm
+    var alarmID: UUID { alarm.id }
     private var onDismiss: (() -> Void)?
     private var countdownTimer: Timer?
     private var takeoverSecondsRemaining = 2
@@ -259,7 +260,7 @@ private final class OverlayView: NSView {
 
 @MainActor
 private func keenButton(_ title: String, style: KeenButtonStyle = .ghost, action: @escaping () -> Void) -> NSButton {
-    let button = NSButton(title: title, target: nil, action: nil)
+    let button = KeenActionButton(title: title, actionHandler: action)
     button.bezelStyle = .rounded
     button.isBordered = true
     button.controlSize = .large
@@ -267,7 +268,6 @@ private func keenButton(_ title: String, style: KeenButtonStyle = .ghost, action
     button.focusRingType = .none
     button.translatesAutoresizingMaskIntoConstraints = false
     button.heightAnchor.constraint(equalToConstant: 34).isActive = true
-    button.onAction = action
     switch style {
     case .ghost:
         button.contentTintColor = KeenDesign.inkMuted
@@ -447,24 +447,21 @@ private final class TakeoverContent: NSView {
 
 // MARK: - Button helper
 
-private final class ButtonTarget: NSObject {
-    let action: () -> Void
-    init(_ action: @escaping () -> Void) { self.action = action }
-    @objc func fire() { action() }
-}
-
 @MainActor
-private var buttonTargets: [ObjectIdentifier: ButtonTarget] = [:]
+private final class KeenActionButton: NSButton {
+    private let actionHandler: () -> Void
 
-private extension NSButton {
-    var onAction: (() -> Void)? {
-        get { nil }
-        set {
-            guard let newValue else { return }
-            let target = ButtonTarget(newValue)
-            buttonTargets[ObjectIdentifier(self)] = target
-            self.target = target
-            self.action = #selector(ButtonTarget.fire)
-        }
+    init(title: String, actionHandler: @escaping () -> Void) {
+        self.actionHandler = actionHandler
+        super.init(frame: .zero)
+        self.title = title
+        target = self
+        action = #selector(invokeAction)
     }
+
+    @objc private func invokeAction() {
+        actionHandler()
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }

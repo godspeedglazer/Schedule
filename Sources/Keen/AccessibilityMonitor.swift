@@ -29,12 +29,10 @@ final class AccessibilityMonitor {
 
     func secondsSinceUserInput() -> TimeInterval {
         let types: [CGEventType] = [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown, .scrollWheel]
-        var maxIdle: TimeInterval = 0
-        for type in types {
-            let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: type)
-            maxIdle = max(maxIdle, idle)
+        let idleDurations = types.map { type in
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: type)
         }
-        return maxIdle
+        return idleDurations.min() ?? 0
     }
 
     func frontmostAppName() -> String? {

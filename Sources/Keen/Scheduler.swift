@@ -28,6 +28,14 @@ final class Scheduler {
         precisionTimer = nil
     }
 
+    func handleSystemWake() {
+        tick()
+    }
+
+    func handleSystemTimeChange() {
+        tick()
+    }
+
     func fireNow(_ alarm: KeenAlarm) {
         present(alarm, deliverSystemNotification: true)
     }
@@ -109,7 +117,13 @@ final class Scheduler {
     private func handleRecurrence(_ alarm: KeenAlarm) {
         if alarm.repeatDaily {
             var next = alarm
-            next.fireAt = Calendar.current.date(byAdding: .day, value: 1, to: alarm.fireAt) ?? alarm.fireAt.addingTimeInterval(86400)
+            var nextFire = alarm.fireAt
+            let now = Date()
+            repeat {
+                nextFire = Calendar.current.date(byAdding: .day, value: 1, to: nextFire)
+                    ?? nextFire.addingTimeInterval(86_400)
+            } while nextFire <= now
+            next.fireAt = nextFire
             next.enabled = true
             ScheduleStore.shared.upsert(next)
         } else {

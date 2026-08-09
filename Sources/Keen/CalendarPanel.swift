@@ -147,39 +147,83 @@ final class CalendarPanelController: NSViewController {
         selectedDateLabel.stringValue = formatter.string(from: date)
         agendaStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        let reminders = ScheduleStore.shared.store.alarms
-            .filter { $0.enabled && Calendar.autoupdatingCurrent.isDate($0.fireAt, inSameDayAs: date) }
-            .sorted { $0.fireAt < $1.fireAt }
-        let events = CalendarService.shared.events(on: date)
+        let reminderEntries = ScheduleStore.shared.store.alarms.compactMap { alarm -> AgendaEntry? in
+            guard alarm.enabled, let occurrence = reminderOccurrence(for: alarm, on: date) else { return nil }
+            return AgendaEntry(
+                sortDate: occurrence,
+                allDay: false,
+                time: SchedTimeFormat.string(from: occurrence),
+                title: alarm.title,
+                detail: alarm.note.isEmpty ? (alarm.repeatDaily ? "Daily Sched reminder" : "Sched reminder") : alarm.note,
+                color: KeenDesign.levelColor(alarm.level),
+                symbol: "bell.fill"
+            )
+        }
+
+        let eventEntries = CalendarService.shared.events(on: date).map { event in
+            AgendaEntry(
+                sortDate: event.startDate,
+                allDay: event.isAllDay,
+                time: event.isAllDay ? "All day" : SchedTimeFormat.string(from: event.startDate),
+                title: event.title ?? "Untitled event",
+                detail: event.calendar.title,
+                color: NSColor(cgColor: event.calendar.cgColor) ?? KeenDesign.accent,
+                symbol: "calendar"
+            )
+        }
 
         if !CalendarService.shared.hasAccess {
             agendaStack.addArrangedSubview(helper("Optionally include events from Calendar. Sched works without access."))
             agendaStack.addArrangedSubview(accessButton)
         }
 
-        for reminder in reminders {
-            addAgendaRow(agendaRow(
-                time: SchedTimeFormat.string(from: reminder.fireAt),
-                title: reminder.title,
-                detail: reminder.note.isEmpty ? "Sched reminder" : reminder.note,
-                color: KeenDesign.levelColor(reminder.level),
-                symbol: "bell.fill"
-            ))
+        let entries = (reminderEntries + eventEntries).sorted { lhs, rhs in
+            if lhs.allDay != rhs.allDay { return lhs.allDay }
+            if lhs.sortDate != rhs.sortDate { return lhs.sortDate < rhs.sortDate }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
-        for event in events {
-            let time = event.isAllDay ? "All day" : SchedTimeFormat.string(from: event.startDate)
+
+        for entry in entries {
             addAgendaRow(agendaRow(
-                time: time,
-                title: event.title ?? "Untitled event",
-                detail: event.calendar.title,
-                color: NSColor(cgColor: event.calendar.cgColor) ?? KeenDesign.accent,
-                symbol: "calendar"
+                time: entry.time,
+                title: entry.title,
+                detail: entry.detail,
+                color: entry.color,
+                symbol: entry.symbol
             ))
         }
 
-        if reminders.isEmpty && events.isEmpty {
+        if entries.isEmpty {
             agendaStack.addArrangedSubview(helper("Nothing scheduled for this day."))
         }
+    }
+
+    private func reminderOccurrence(for alarm: KeenAlarm, on date: Date) -> Date? {
+        let calendar = Calendar.autoupdatingCurrent
+        if !alarm.repeatDaily {
+            return calendar.isDate(alarm.fireAt, inSameDayAs: date) ? alarm.fireAt : nil
+        }
+
+        let selectedDay = calendar.startOfDay(for: date)
+        let firstScheduledDay = calendar.startOfDay(for: alarm.fireAt)
+        guard selectedDay >= firstScheduledDay else { return nil }
+
+        let time = calendar.dateComponents([.hour, .minute, .second], from: alarm.fireAt)
+        var components = calendar.dateComponents([.year, .month, .day], from: date)
+        components.hour = time.hour
+        components.minute = time.minute
+        components.second = time.second
+        return calendar.date(from: components)
+    }
+
+    private struct AgendaEntry {
+        let sortDate: Date
+        let allDay: Bool
+        let time: String
+        let title: String
+        let detail: String
+        let color: NSColor
+        let symbol: String
     }
 
     /// Width constraints are only valid after the row and stack share a view hierarchy.

@@ -5,35 +5,39 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let statusMenu = NSMenu()
     private var timer: Timer?
+    private var timerInterval: TimeInterval?
     private var storeObserver: UUID?
 
     func install() {
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "calendar.badge.clock", accessibilityDescription: "Sched")
+        button.image = statusIcon()
         button.image?.isTemplate = true
+        button.toolTip = "Sched"
+
         statusMenu.delegate = self
+        statusMenu.autoenablesItems = false
         statusItem.menu = statusMenu
-        storeObserver = ScheduleStore.shared.observeChanges { [weak self] in self?.refresh() }
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+
+        storeObserver = ScheduleStore.shared.observeChanges { [weak self] in
+            self?.refresh()
         }
-        if let timer { RunLoop.main.add(timer, forMode: .common) }
         refresh()
     }
 
     private func refresh() {
         let preferences = ScheduleStore.shared.store
-        let button = statusItem.button
-        button?.image = preferences.menuBarShowIcon
-            ? NSImage(systemSymbolName: "calendar.badge.clock", accessibilityDescription: "Sched")
-            : nil
-        button?.image?.isTemplate = true
+        configureRefreshTimer(for: preferences)
+
+        guard let button = statusItem.button else { return }
+        button.image = preferences.menuBarShowIcon ? statusIcon() : nil
+        button.image?.isTemplate = true
 
         var components: [String] = []
         if preferences.menuBarShowDate {
-            let date = DateFormatter()
-            date.setLocalizedDateFormatFromTemplate("E d")
-            components.append(date.string(from: .now))
+            let formatter = DateFormatter()
+            formatter.locale = .autoupdatingCurrent
+            formatter.setLocalizedDateFormatFromTemplate("E d")
+            components.append(formatter.string(from: .now))
         }
         if preferences.menuBarShowTime {
             components.append(SchedTimeFormat.string(from: .now, includeSeconds: preferences.menuBarShowSeconds))
@@ -42,20 +46,39 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
         if let next = ScheduleStore.shared.nextAlarm() {
             let remaining = max(0, Int(next.fireAt.timeIntervalSinceNow))
             let minutes = (remaining + 59) / 60
-            statusItem.button?.toolTip = "Next: \(next.title) at \(SchedTimeFormat.string(from: next.fireAt)) · \(minutes)m"
+            button.toolTip = "Next: \(next.title) at \(SchedTimeFormat.string(from: next.fireAt)) · \(minutes)m"
             if preferences.menuBarShowNextCountdown && remaining < 24 * 60 * 60 {
                 components.append(Self.remainingText(remaining))
             }
         } else {
-            statusItem.button?.toolTip = "No reminders scheduled"
+            button.toolTip = "No reminders scheduled"
         }
+
         let title = components.joined(separator: "  ·  ")
-        button?.title = title.isEmpty ? "" : " " + title
-        button?.imagePosition = title.isEmpty ? .imageOnly : .imageLeft
-        button?.font = preferences.menuBarShowSeconds
+        button.title = title.isEmpty ? "" : " " + title
+        button.imagePosition = title.isEmpty ? .imageOnly : .imageLeft
+        button.font = preferences.menuBarShowSeconds
             ? NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
             : NSFont.menuBarFont(ofSize: 0)
         statusItem.length = title.isEmpty ? NSStatusItem.squareLength : NSStatusItem.variableLength
+    }
+
+    private func configureRefreshTimer(for preferences: KeenStore) {
+        let interval: TimeInterval = preferences.menuBarShowSeconds ? 1 : 30
+        guard timerInterval != interval || timer == nil else { return }
+
+        timer?.invalidate()
+        timerInterval = interval
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+        if let timer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+
+    func refreshForSystemTimeChange() {
+        refresh()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -64,52 +87,47 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
 
     private func rebuildMenu() {
         statusMenu.removeAllItems()
-        statusMenu.minimumWidth = 280
-        let calendarHost = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 164))
-        let calendar = NSDatePicker()
-        calendar.datePickerStyle = .clockAndCalendar
-        calendar.datePickerElements = [.yearMonthDay]
-        calendar.dateValue = .now
-        calendar.isBordered = false
-        calendar.translatesAutoresizingMaskIntoConstraints = false
-        calendarHost.addSubview(calendar)
-        NSLayoutConstraint.activate([
-            calendar.centerXAnchor.constraint(equalTo: calendarHost.centerXAnchor),
-            calendar.centerYAnchor.constraint(equalTo: calendarHost.centerYAnchor),
-        ])
-        let calendarItem = NSMenuItem()
-        calendarItem.view = calendarHost
-        statusMenu.addItem(calendarItem)
-        statusMenu.addItem(.separator())
+        statusMenu.minimumWidth = 270
 
-        if let next = ScheduleStore.shared.nextAlarm() {
-            let remaining = max(0, Int(next.fireAt.timeIntervalSinceNow))
-            let shortTitle = Self.compact(next.title, limit: 24)
-            let nextItem = NSMenuItem(
-                title: "Next · \(shortTitle) · \(Self.remainingText(remaining))",
-                action: nil,
-                keyEquivalent: ""
-            )
-            nextItem.image = NSImage(systemSymbolName: "bell.fill", accessibilityDescription: nil)
-            nextItem.isEnabled = false
-            statusMenu.addItem(nextItem)
-        } else {
-            let empty = NSMenuItem(title: "No reminders scheduled", action: nil, keyEquivalent: "")
+        statusMenu.addItem(menuItem("Open Sched", symbol: "calendar.badge.clock", action: #selector(openPlan)))
+
+        let upcoming = Array(ScheduleStore.shared.enabledAlarms().prefix(3))
+        if upcoming.isEmpty {
+            let empty = NSMenuItem(title: "No upcoming reminders", action: nil, keyEquivalent: "")
             empty.isEnabled = false
             statusMenu.addItem(empty)
+        } else {
+            statusMenu.addItem(.separator())
+            for alarm in upcoming {
+                let item = NSMenuItem(
+                    title: Self.alarmMenuTitle(alarm),
+                    action: #selector(openPlan),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.image = NSImage(systemSymbolName: "bell.fill", accessibilityDescription: nil)
+                item.toolTip = alarm.note.isEmpty ? alarm.title : "\(alarm.title)\n\(alarm.note)"
+                statusMenu.addItem(item)
+            }
         }
 
         statusMenu.addItem(.separator())
         let timerItem = NSMenuItem(title: "Start Timer", action: nil, keyEquivalent: "")
+        timerItem.image = NSImage(systemSymbolName: "timer", accessibilityDescription: nil)
         let timerMenu = NSMenu()
         timerMenu.addItem(menuItem("5 minutes", action: #selector(start5)))
         timerMenu.addItem(menuItem("25 minutes", action: #selector(start25)))
         timerMenu.addItem(menuItem("50 minutes", action: #selector(start50)))
         timerItem.submenu = timerMenu
         statusMenu.addItem(timerItem)
-        statusMenu.addItem(menuItem("Open Plan", symbol: "list.bullet.rectangle", action: #selector(openPlan)))
-        statusMenu.addItem(menuItem("Open Calendar", symbol: "calendar", action: #selector(openCalendar)))
-        statusMenu.addItem(menuItem("Dismiss Alerts", symbol: "bell.slash", action: #selector(dismissAlerts)))
+
+        statusMenu.addItem(menuItem("Calendar", symbol: "calendar", action: #selector(openCalendar)))
+        statusMenu.addItem(menuItem("Settings", symbol: "gearshape", action: #selector(openSettings)))
+
+        let dismiss = menuItem("Dismiss Alerts", symbol: "bell.slash", action: #selector(dismissAlerts))
+        dismiss.isEnabled = InterventionManager.shared.hasActive
+        statusMenu.addItem(dismiss)
+
         statusMenu.addItem(.separator())
         statusMenu.addItem(menuItem("Quit Sched", action: #selector(quit)))
     }
@@ -117,8 +135,19 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
     private func menuItem(_ title: String, symbol: String? = nil, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
-        if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+        if let symbol {
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
         return item
+    }
+
+    private func statusIcon() -> NSImage? {
+        NSImage(systemSymbolName: "calendar.badge.clock", accessibilityDescription: "Sched")
+    }
+
+    private static func alarmMenuTitle(_ alarm: KeenAlarm) -> String {
+        let time = SchedTimeFormat.string(from: alarm.fireAt)
+        return "\(time)  \(compact(alarm.title, limit: 18))"
     }
 
     private static func compact(_ value: String, limit: Int) -> String {
@@ -142,6 +171,11 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
 
     @objc private func openCalendar() {
         MainWindowController.shared.showSection(.calendar)
+        MainWindowController.shared.showWindow()
+    }
+
+    @objc private func openSettings() {
+        MainWindowController.shared.showSection(.settings)
         MainWindowController.shared.showWindow()
     }
 
