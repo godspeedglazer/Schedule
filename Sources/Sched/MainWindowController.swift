@@ -152,7 +152,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func makeRailMark() -> NSView {
         let image: NSImage
-        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "svg"),
+        func resourceURL(named name: String, ext: String) -> URL? {
+            // Try main bundle first
+            if let url = Bundle.main.url(forResource: name, withExtension: ext) { return url }
+            // Check bundle resources path
+            let bundleResource = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(name).\(ext)")
+            if FileManager.default.fileExists(atPath: bundleResource.path) { return bundleResource }
+            // Fall back to source tree path for local development
+            let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            let candidate = cwd.appendingPathComponent("Sources/Sched/Resources/\(name).\(ext)")
+            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+            return nil
+        }
+        if let url = resourceURL(named: "AppIcon", ext: "svg"),
            let bundledImage = NSImage(contentsOf: url) {
             image = bundledImage
         } else {

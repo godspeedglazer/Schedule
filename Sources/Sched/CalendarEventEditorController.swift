@@ -27,7 +27,7 @@ final class CalendarEventEditorController: NSViewController {
                 startDate: start,
                 endDate: start.addingTimeInterval(3600),
                 isAllDay: false,
-                calendarIdentifier: CalendarService.shared.defaultCalendarIdentifier,
+                calendarIdentifier: nil,
                 location: "",
                 notes: ""
             )
@@ -39,7 +39,7 @@ final class CalendarEventEditorController: NSViewController {
                 startDate: alarm.fireAt,
                 endDate: alarm.fireAt.addingTimeInterval(30 * 60),
                 isAllDay: false,
-                calendarIdentifier: CalendarService.shared.defaultCalendarIdentifier,
+            calendarIdentifier: nil,
                 location: "",
                 notes: alarm.note
             )
@@ -88,7 +88,7 @@ final class CalendarEventEditorController: NSViewController {
             sheet.setContentSize(NSSize(width: 460, height: 420))
             controller.sheetWindow = sheet
             controller.parentWindow = parent
-            parent.beginSheet(sheet)
+            await parent.beginSheet(sheet)
         }
     }
 
@@ -122,7 +122,7 @@ final class CalendarEventEditorController: NSViewController {
         calendarPopup.removeAllItems()
         for calendar in CalendarService.shared.writableCalendars() {
             calendarPopup.addItem(withTitle: calendar.title)
-            calendarPopup.lastItem?.representedObject = calendar.identifier
+            calendarPopup.lastItem?.representedObject = calendar.calendarIdentifier
         }
 
         allDayCheck.target = self

@@ -275,6 +275,12 @@ struct SchedAlarm: Codable, Identifiable, Equatable {
     }
 }
 
+enum DockPresence: String, Codable, CaseIterable {
+    case always
+    case whileWindowOpen
+    case never
+}
+
 struct SchedStore: Codable {
     var alarms: [SchedAlarm]
     var appWatches: [SchedAppWatch]
@@ -299,6 +305,7 @@ struct SchedStore: Codable {
     var floatingTimerAlwaysOnTop: Bool
     var hourStyle: HourStyle
     var showAMPM: Bool
+    var dockPresence: DockPresence
 
     static let empty = SchedStore(
         alarms: [],
@@ -323,7 +330,8 @@ struct SchedStore: Codable {
         floatingTimerAutoShow: false,
         floatingTimerAlwaysOnTop: true,
         hourStyle: .system,
-        showAMPM: true
+        showAMPM: true,
+        dockPresence: .whileWindowOpen
     )
 
     enum CodingKeys: String, CodingKey {
@@ -333,7 +341,7 @@ struct SchedStore: Codable {
         case menuBarShowIcon, menuBarShowDate, menuBarShowTime, menuBarShowSeconds
         case menuBarClockEnabled, menuBarTimerEnabled, menuBarTimerHideWhenIdle
         case floatingTimerAutoShow, floatingTimerAlwaysOnTop
-        case hourStyle, showAMPM
+        case hourStyle, showAMPM, dockPresence
     }
 
     init(
@@ -359,7 +367,8 @@ struct SchedStore: Codable {
         floatingTimerAutoShow: Bool,
         floatingTimerAlwaysOnTop: Bool,
         hourStyle: HourStyle,
-        showAMPM: Bool
+        showAMPM: Bool,
+        dockPresence: DockPresence
     ) {
         self.alarms = alarms
         self.appWatches = appWatches
@@ -384,6 +393,7 @@ struct SchedStore: Codable {
         self.floatingTimerAlwaysOnTop = floatingTimerAlwaysOnTop
         self.hourStyle = hourStyle
         self.showAMPM = showAMPM
+        self.dockPresence = dockPresence
     }
 
     init(from decoder: Decoder) throws {
@@ -411,5 +421,6 @@ struct SchedStore: Codable {
         floatingTimerAlwaysOnTop = try c.decodeIfPresent(Bool.self, forKey: .floatingTimerAlwaysOnTop) ?? true
         hourStyle = try c.decodeIfPresent(HourStyle.self, forKey: .hourStyle) ?? .system
         showAMPM = try c.decodeIfPresent(Bool.self, forKey: .showAMPM) ?? true
+        dockPresence = try c.decodeIfPresent(DockPresence.self, forKey: .dockPresence) ?? .whileWindowOpen
     }
 }

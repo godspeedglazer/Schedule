@@ -63,7 +63,7 @@ final class ClockCalendarMenuView: NSView {
         }
 
         guard let monthInterval = calendar.dateInterval(of: .month, for: displayedDate),
-              let dayRange = calendar.range(of: .day, in: .month, for: date) else { return }
+              let dayRange = calendar.range(of: .day, in: .month, for: displayedDate) else { return }
 
         let monthStart = monthInterval.start
         let weekday = calendar.component(.weekday, from: monthStart)

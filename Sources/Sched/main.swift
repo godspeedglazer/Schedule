@@ -1,7 +1,13 @@
 import AppKit
 
 let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.regular)
-_ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)
+var delegate: AppDelegate!
+let sem = DispatchSemaphore(value: 0)
+Task { @MainActor in
+    delegate = AppDelegate()
+    app.delegate = delegate
+    app.setActivationPolicy(.regular)
+    sem.signal()
+}
+sem.wait()
+app.run()
