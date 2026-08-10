@@ -14,7 +14,8 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
     private let idleStepper = NSStepper()
 
     private let launchCheck = NSButton(checkboxWithTitle: "Open at login", target: nil, action: nil)
-    private let headlessCheck = NSButton(checkboxWithTitle: "Keep reminders running when the window is closed", target: nil, action: nil)
+    private let headlessCheck = NSButton(checkboxWithTitle: "Keep Sched running after closing its window", target: nil, action: nil)
+    private let dockPresencePopup = NSPopUpButton()
     private let soundCheck = NSButton(checkboxWithTitle: "Play a sound", target: nil, action: nil)
     private let repeatSoundCheck = NSButton(checkboxWithTitle: "Repeat sound until handled", target: nil, action: nil)
     private let notificationsCheck = NSButton(checkboxWithTitle: "Also use macOS notifications", target: nil, action: nil)
@@ -202,6 +203,12 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         limitsList.alignment = .leading
         limitsList.spacing = 8
 
+        dockPresencePopup.removeAllItems()
+        DockPresence.allCases.forEach { dockPresencePopup.addItem(withTitle: $0.label) }
+        schedStyleSelector(dockPresencePopup)
+        dockPresencePopup.target = self
+        dockPresencePopup.action = #selector(save)
+
         hourStylePopup.removeAllItems()
         HourStyle.allCases.forEach { hourStylePopup.addItem(withTitle: $0.label) }
         schedStyleSelector(hourStylePopup)
@@ -216,9 +223,12 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         stack.addArrangedSubview(formRow("Default alert", control: defaultLevel))
         stack.addArrangedSubview(formRow("Default snooze", control: numberEditor(snoozeField, snoozeStepper, suffix: "minutes")))
         stack.addArrangedSubview(formRow("Idle reminder", control: numberEditor(idleField, idleStepper, suffix: "minutes · 0 is off")))
+        stack.addArrangedSubview(helper("Sched can stay alive with no Dock icon, no open window, and even no menu-bar items. Opening Sched again always restores the GUI."))
+        stack.addArrangedSubview(formRow("Dock icon", control: dockPresencePopup))
         for check in [launchCheck, headlessCheck, notificationsCheck] {
             stack.addArrangedSubview(check)
         }
+        dockPresencePopup.widthAnchor.constraint(equalToConstant: 220).isActive = true
         let testNotification = SchedGhostButton("Test sound + notification", action: #selector(testNotification), target: self)
         notificationStatus.font = SchedDesign.caption(11)
         SchedDesign.label(notificationStatus, color: SchedDesign.inkMuted)
@@ -316,6 +326,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         idleStepper.integerValue = idle
         launchCheck.state = s.launchAtLogin ? .on : .off
         headlessCheck.state = s.headlessWhenClosed ? .on : .off
+        dockPresencePopup.selectItem(at: DockPresence.allCases.firstIndex(of: s.dockPresence) ?? 1)
         soundCheck.state = s.playSoundOnAlert ? .on : .off
         repeatSoundCheck.state = s.repeatSoundOnAlert ? .on : .off
         repeatSoundCheck.isEnabled = s.playSoundOnAlert
@@ -440,6 +451,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         s.idleMinutesBeforeNudge = idle == 0 ? nil : idle
         s.launchAtLogin = launchCheck.state == .on
         s.headlessWhenClosed = headlessCheck.state == .on
+        s.dockPresence = DockPresence.allCases[max(0, dockPresencePopup.indexOfSelectedItem)]
         s.playSoundOnAlert = soundCheck.state == .on
         s.repeatSoundOnAlert = repeatSoundCheck.state == .on
         s.defaultSound = selectedSound() ?? s.defaultSound

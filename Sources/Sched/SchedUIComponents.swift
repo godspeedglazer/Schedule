@@ -289,6 +289,50 @@ final class SchedLevelPill: NSView {
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }
 
+// MARK: - Fading labels
+
+@MainActor
+final class SchedFadingLabel: NSTextField {
+    private let fadeWidth: CGFloat = 26
+
+    init(_ value: String) {
+        super.init(frame: .zero)
+        stringValue = value
+        isBezeled = false
+        drawsBackground = false
+        isEditable = false
+        isSelectable = false
+        usesSingleLineMode = true
+        lineBreakMode = .byClipping
+        maximumNumberOfLines = 1
+        wantsLayer = true
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        guard bounds.width > fadeWidth, let font else {
+            layer?.mask = nil
+            return
+        }
+        let required = (stringValue as NSString).size(withAttributes: [.font: font]).width
+        guard required > bounds.width else {
+            layer?.mask = nil
+            return
+        }
+
+        let fade = CAGradientLayer()
+        fade.frame = bounds
+        fade.startPoint = CGPoint(x: 0, y: 0.5)
+        fade.endPoint = CGPoint(x: 1, y: 0.5)
+        let start = max(0, min(0.96, (bounds.width - fadeWidth) / bounds.width))
+        fade.locations = [NSNumber(value: 0), NSNumber(value: Double(start)), NSNumber(value: 1)]
+        fade.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        layer?.mask = fade
+    }
+}
+
 // MARK: - Alarm card (glass)
 
 @MainActor
@@ -297,6 +341,7 @@ protocol SchedAlarmCardDelegate: AnyObject {
     func alarmCardEdit(_ id: UUID)
     func alarmCardMoveLater(_ id: UUID, minutes: Int)
     func alarmCardDuplicate(_ id: UUID)
+    func alarmCardAddToCalendar(_ id: UUID)
     func alarmCardDisable(_ id: UUID)
     func alarmCardDelete(_ id: UUID)
 }
@@ -308,7 +353,7 @@ final class SchedAlarmCard: NSControl {
     private let glass: SchedGlassSurface
     private let timeLabel: NSTextField
     private let periodLabel: NSTextField
-    private let titleLabel: NSTextField
+    private let titleLabel: SchedFadingLabel
     private let noteLabel: NSTextField
     private let actionIcon = NSImageView()
     private let stripe = NSView()
@@ -334,22 +379,24 @@ final class SchedAlarmCard: NSControl {
         periodLabel.font = SchedDesign.caption(10)
         SchedDesign.label(periodLabel, color: SchedDesign.inkMuted)
 
-        titleLabel = NSTextField(labelWithString: alarm.title)
+        titleLabel = SchedFadingLabel(alarm.title)
         titleLabel.font = SchedDesign.title(16)
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
         titleLabel.toolTip = alarm.title
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         SchedDesign.label(titleLabel)
 
-        noteLabel = NSTextField(labelWithString: Self.noteText(alarm))
+        noteLabel = NSTextField(wrappingLabelWithString: Self.noteText(alarm))
         noteLabel.font = SchedDesign.body(12)
+        noteLabel.maximumNumberOfLines = 0
+        noteLabel.lineBreakMode = .byWordWrapping
+        noteLabel.toolTip = alarm.note.isEmpty ? nil : alarm.note
+        noteLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         SchedDesign.label(noteLabel, color: SchedDesign.inkMuted)
-        noteLabel.lineBreakMode = .byTruncatingTail
 
         super.init(frame: .zero)
         isSelected = selected
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 76).isActive = true
+        heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
         wantsLayer = true
 
         addSubview(glass)
@@ -383,6 +430,7 @@ final class SchedAlarmCard: NSControl {
             noteLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             noteLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
             noteLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            noteLabel.bottomAnchor.constraint(lessThanOrEqualTo: inner.bottomAnchor, constant: -12),
             actionIcon.trailingAnchor.constraint(equalTo: levelPill.leadingAnchor, constant: -10),
             actionIcon.centerYAnchor.constraint(equalTo: inner.centerYAnchor),
             actionIcon.widthAnchor.constraint(equalToConstant: 16),
@@ -405,6 +453,7 @@ final class SchedAlarmCard: NSControl {
         periodLabel.stringValue = Self.contextText(for: alarm, period: timeParts.period)
         titleLabel.stringValue = alarm.title
         titleLabel.toolTip = alarm.title
+        titleLabel.needsLayout = true
         noteLabel.stringValue = Self.noteText(alarm)
         noteLabel.toolTip = alarm.note.isEmpty ? nil : alarm.note
         configureActionIcon(alarm.action)
@@ -426,7 +475,11 @@ final class SchedAlarmCard: NSControl {
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
     override func mouseDown(with event: NSEvent) {
-        cardDelegate?.alarmCardSelected(alarmID)
+        if event.clickCount >= 2 {
+            cardDelegate?.alarmCardEdit(alarmID)
+        } else {
+            cardDelegate?.alarmCardSelected(alarmID)
+        }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -434,6 +487,7 @@ final class SchedAlarmCard: NSControl {
         menu.addItem(contextItem("Edit Reminder", symbol: "slider.horizontal.3", action: #selector(contextEdit)))
         menu.addItem(contextItem("Move 5 Minutes Later", symbol: "clock.arrow.circlepath", action: #selector(contextMoveLater)))
         menu.addItem(contextItem("Duplicate", symbol: "plus.square.on.square", action: #selector(contextDuplicate)))
+        menu.addItem(contextItem("Add to Calendar…", symbol: "calendar.badge.plus", action: #selector(contextAddToCalendar)))
         menu.addItem(contextItem("Disable", symbol: "pause.circle", action: #selector(contextDisable)))
         menu.addItem(.separator())
         menu.addItem(contextItem("Delete", symbol: "trash", action: #selector(contextDelete)))
@@ -450,6 +504,7 @@ final class SchedAlarmCard: NSControl {
     @objc private func contextEdit() { cardDelegate?.alarmCardEdit(alarmID) }
     @objc private func contextMoveLater() { cardDelegate?.alarmCardMoveLater(alarmID, minutes: 5) }
     @objc private func contextDuplicate() { cardDelegate?.alarmCardDuplicate(alarmID) }
+    @objc private func contextAddToCalendar() { cardDelegate?.alarmCardAddToCalendar(alarmID) }
     @objc private func contextDisable() { cardDelegate?.alarmCardDisable(alarmID) }
     @objc private func contextDelete() { cardDelegate?.alarmCardDelete(alarmID) }
 
@@ -695,6 +750,51 @@ final class SchedGlassField: NSView {
             field.leadingAnchor.constraint(equalTo: glass.innerContentView.leadingAnchor, constant: 12),
             field.trailingAnchor.constraint(equalTo: glass.innerContentView.trailingAnchor, constant: -12),
             field.centerYAnchor.constraint(equalTo: glass.innerContentView.centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+}
+
+@MainActor
+final class SchedGlassTextView: NSView {
+    let textView = NSTextView()
+    private let glass: SchedGlassSurface
+
+    init(placeholder: String = "") {
+        glass = SchedGlassSurface(cornerRadius: 10, tint: SchedDesign.fieldTint, interactive: true)
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        textView.font = SchedDesign.body(13)
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 2, height: 4)
+        textView.isRichText = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.toolTip = placeholder
+        scroll.documentView = textView
+
+        addSubview(glass)
+        glass.innerContentView.addSubview(scroll)
+        NSLayoutConstraint.activate([
+            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glass.topAnchor.constraint(equalTo: topAnchor),
+            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightAnchor.constraint(equalToConstant: 76),
+            scroll.leadingAnchor.constraint(equalTo: glass.innerContentView.leadingAnchor, constant: 10),
+            scroll.trailingAnchor.constraint(equalTo: glass.innerContentView.trailingAnchor, constant: -10),
+            scroll.topAnchor.constraint(equalTo: glass.innerContentView.topAnchor, constant: 6),
+            scroll.bottomAnchor.constraint(equalTo: glass.innerContentView.bottomAnchor, constant: -6),
         ])
     }
 

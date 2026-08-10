@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
+final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate, NSTextViewDelegate {
     private let hero = SchedHeroStrip()
     private let listHeader = NSTextField(labelWithString: "Alarms")
     private let cardStack = NSStackView()
@@ -17,14 +17,15 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
     private var inspectorWidthConstraint: NSLayoutConstraint?
     private var listHeightConstraint: NSLayoutConstraint?
     private var heroTimer: Timer?
+    private var storeObserver: UUID?
     private var selectedID: UUID?
     private var inspectorFields: [NSView] = []
     private var isLoadingInspector = false
 
     private let titleGlass = SchedGlassField(placeholder: "Morning focus")
-    private let noteGlass = SchedGlassField(placeholder: "What should future-you know?")
+    private let noteGlass = SchedGlassTextView(placeholder: "What should future-you know?")
     private var titleField: NSTextField { titleGlass.field }
-    private var noteField: NSTextField { noteGlass.field }
+    private var noteTextView: NSTextView { noteGlass.textView }
     private let datePicker = NSDatePicker()
     private let levelPopup = NSPopUpButton()
     private let soundPopup = NSPopUpButton()
@@ -176,20 +177,26 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
         listHeight.isActive = true
         listHeightConstraint = listHeight
 
-        ScheduleStore.shared.onChange = { [weak self] in
-            self?.hero.refresh()
-            self?.rebuildAlarmList()
-        }
     }
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
         heroTimer?.invalidate()
         heroTimer = nil
+        if let storeObserver {
+            ScheduleStore.shared.removeObserver(storeObserver)
+            self.storeObserver = nil
+        }
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        if storeObserver == nil {
+            storeObserver = ScheduleStore.shared.observeChanges { [weak self] in
+                self?.hero.refresh()
+                self?.rebuildAlarmList()
+            }
+        }
         heroTimer?.invalidate()
         heroTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.hero.refresh() }
@@ -274,6 +281,7 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
             name: NSControl.textDidEndEditingNotification,
             object: nil
         )
+        noteTextView.delegate = self
 
         enabledCheck.state = .on
 
@@ -303,7 +311,7 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
         stack.addArrangedSubview(emptyLabel)
         for row in rows {
             stack.addArrangedSubview(row)
-            if row is SchedGlassField || row is NSPopUpButton || row is NSDatePicker {
+            if row is SchedGlassField || row is SchedGlassTextView || row is NSPopUpButton || row is NSDatePicker {
                 row.widthAnchor.constraint(equalToConstant: SchedDesign.inspectorWidth - 32).isActive = true
             }
         }
@@ -400,12 +408,14 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
     }
 
     func alarmCardSelected(_ id: UUID) {
+        view.window?.makeFirstResponder(nil)
         selectedID = selectedID == id ? nil : id
         updateSelectionHighlight()
         reloadInspector()
     }
 
     func alarmCardEdit(_ id: UUID) {
+        view.window?.makeFirstResponder(nil)
         selectedID = id
         updateSelectionHighlight()
         reloadInspector()
@@ -423,8 +433,19 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
         alarm.title = SchedTextLimits.clean("\(alarm.title) copy", limit: SchedTextLimits.title)
         alarm.enabled = true
         alarm.pausedRemainingSeconds = nil
+        alarm.calendarEventIdentifier = nil
         selectedID = alarm.id
         ScheduleStore.shared.upsert(alarm)
+    }
+
+    func alarmCardAddToCalendar(_ id: UUID) {
+        guard let alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }),
+              let window = view.window else { return }
+        CalendarEventEditorController.present(from: window, seed: .reminder(alarm)) { event in
+            var updated = alarm
+            updated.calendarEventIdentifier = event.eventIdentifier
+            ScheduleStore.shared.upsert(updated)
+        }
     }
 
     func alarmCardDisable(_ id: UUID) {
@@ -456,7 +477,7 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
         guard let id = selectedID, let alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
         isLoadingInspector = true
         titleField.stringValue = alarm.title
-        noteField.stringValue = alarm.note
+        noteTextView.string = alarm.note
         datePicker.dateValue = alarm.fireAt
         levelPopup.selectItem(at: InterventionLevel.allCases.firstIndex(of: alarm.level) ?? 0)
         reloadSoundChoices(selected: alarm.sound)
@@ -530,7 +551,12 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
 
     @objc private func inspectorTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField,
-              field === titleField || field === noteField || field === actionField else { return }
+              field === titleField || field === actionField else { return }
+        saveInspector()
+    }
+
+    func textDidEndEditing(_ notification: Notification) {
+        guard let textView = notification.object as? NSTextView, textView === noteTextView else { return }
         saveInspector()
     }
 
@@ -572,7 +598,7 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate {
               var alarm = ScheduleStore.shared.store.alarms.first(where: { $0.id == id }) else { return }
         let cleanTitle = SchedTextLimits.clean(titleField.stringValue, limit: SchedTextLimits.title)
         alarm.title = cleanTitle.isEmpty ? "Alarm" : cleanTitle
-        alarm.note = SchedTextLimits.clean(noteField.stringValue, limit: SchedTextLimits.note)
+        alarm.note = SchedTextLimits.clean(noteTextView.string, limit: SchedTextLimits.note)
         alarm.fireAt = datePicker.dateValue
         alarm.level = InterventionLevel.allCases[levelPopup.indexOfSelectedItem]
         alarm.sound = soundPopup.selectedItem?.representedObject as? AlarmSound

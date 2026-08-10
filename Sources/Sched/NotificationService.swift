@@ -132,6 +132,7 @@ final class NotificationService {
             alarm.repeatDaily = false
             alarm.enabled = true
             alarm.pausedRemainingSeconds = nil
+            alarm.calendarEventIdentifier = nil
             ScheduleStore.shared.upsert(alarm)
             if let id {
                 AlarmAudioService.shared.stop(alarmID: id)
@@ -149,8 +150,12 @@ final class NotificationService {
             }
 
         case UNNotificationDefaultActionIdentifier:
-            MainWindowController.shared.showSection(.schedule)
-            MainWindowController.shared.showWindow()
+            if let id = alarmID.flatMap(UUID.init(uuidString:)) {
+                MainWindowController.shared.showAlarm(id)
+            } else {
+                MainWindowController.shared.showSection(.schedule)
+                MainWindowController.shared.showWindow()
+            }
 
         default:
             break

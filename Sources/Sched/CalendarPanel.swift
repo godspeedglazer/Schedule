@@ -6,8 +6,10 @@ final class CalendarPanelController: NSViewController {
     private let monthCalendar = SchedMonthCalendarView()
     private let selectedDateLabel = NSTextField(labelWithString: "")
     private let agendaStack = NSStackView()
-    private let accessButton = SchedPrimaryButton("Show Calendar Events", action: #selector(requestCalendarAccess), target: nil)
+    private let accessButton = SchedPrimaryButton("Enable Calendar Access", action: #selector(requestCalendarAccess), target: nil)
     private var storeObserver: UUID?
+    private var calendarObserver: UUID?
+    private var activeObserver: NSObjectProtocol?
 
     override func loadView() {
         view = NSView()
@@ -26,27 +28,29 @@ final class CalendarPanelController: NSViewController {
         monthCalendar.translatesAutoresizingMaskIntoConstraints = false
         calendarGlass.innerContentView.addSubview(monthCalendar)
         NSLayoutConstraint.activate([
-            monthCalendar.leadingAnchor.constraint(equalTo: calendarGlass.innerContentView.leadingAnchor, constant: 18),
-            monthCalendar.trailingAnchor.constraint(equalTo: calendarGlass.innerContentView.trailingAnchor, constant: -18),
-            monthCalendar.topAnchor.constraint(equalTo: calendarGlass.innerContentView.topAnchor, constant: 18),
-            monthCalendar.heightAnchor.constraint(equalToConstant: 304),
+            monthCalendar.leadingAnchor.constraint(equalTo: calendarGlass.innerContentView.leadingAnchor, constant: 16),
+            monthCalendar.trailingAnchor.constraint(equalTo: calendarGlass.innerContentView.trailingAnchor, constant: -16),
+            monthCalendar.topAnchor.constraint(equalTo: calendarGlass.innerContentView.topAnchor, constant: 16),
+            monthCalendar.heightAnchor.constraint(equalToConstant: 272),
         ])
 
         let today = SchedGhostButton("Today", action: #selector(goToToday), target: self)
-        let openPlan = SchedGhostButton("Open Plan", action: #selector(openPlan), target: self)
-        let calendarActions = NSStackView(views: [today, openPlan])
+        let addEvent = SchedPrimaryButton("＋ Event", action: #selector(addEvent), target: self)
+        let addReminder = SchedGhostButton("＋ Reminder", action: #selector(addReminder), target: self)
+        let calendarActions = NSStackView(views: [today, addEvent, addReminder])
         calendarActions.orientation = .horizontal
-        calendarActions.spacing = 8
+        calendarActions.spacing = 7
         calendarActions.translatesAutoresizingMaskIntoConstraints = false
         calendarGlass.innerContentView.addSubview(calendarActions)
         NSLayoutConstraint.activate([
             calendarActions.leadingAnchor.constraint(equalTo: monthCalendar.leadingAnchor),
-            calendarActions.bottomAnchor.constraint(equalTo: calendarGlass.innerContentView.bottomAnchor, constant: -18),
-            calendarActions.topAnchor.constraint(equalTo: monthCalendar.bottomAnchor, constant: 16),
+            calendarActions.bottomAnchor.constraint(equalTo: calendarGlass.innerContentView.bottomAnchor, constant: -16),
+            calendarActions.topAnchor.constraint(equalTo: monthCalendar.bottomAnchor, constant: 14),
         ])
 
         let agendaGlass = SchedGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.14))
         selectedDateLabel.font = SchedDesign.title(18)
+        selectedDateLabel.lineBreakMode = .byTruncatingTail
         SchedDesign.label(selectedDateLabel)
         agendaStack.orientation = .vertical
         agendaStack.alignment = .leading
@@ -81,7 +85,7 @@ final class CalendarPanelController: NSViewController {
             selectedDateLabel.topAnchor.constraint(equalTo: agendaHost.topAnchor, constant: 18),
             scroll.leadingAnchor.constraint(equalTo: selectedDateLabel.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: selectedDateLabel.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: selectedDateLabel.bottomAnchor, constant: 14),
+            scroll.topAnchor.constraint(equalTo: selectedDateLabel.bottomAnchor, constant: 12),
             scroll.bottomAnchor.constraint(equalTo: agendaHost.bottomAnchor, constant: -18),
         ])
 
@@ -91,12 +95,12 @@ final class CalendarPanelController: NSViewController {
             title.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
             subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            calendarGlass.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 18),
+            calendarGlass.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 16),
             calendarGlass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            calendarGlass.heightAnchor.constraint(equalToConstant: 400),
-            calendarGlass.widthAnchor.constraint(equalToConstant: 320),
+            calendarGlass.heightAnchor.constraint(equalToConstant: 360),
+            calendarGlass.widthAnchor.constraint(equalToConstant: 292),
             agendaGlass.topAnchor.constraint(equalTo: calendarGlass.topAnchor),
-            agendaGlass.leadingAnchor.constraint(equalTo: calendarGlass.trailingAnchor, constant: 16),
+            agendaGlass.leadingAnchor.constraint(equalTo: calendarGlass.trailingAnchor, constant: 14),
             agendaGlass.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             agendaGlass.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
@@ -110,7 +114,18 @@ final class CalendarPanelController: NSViewController {
         if storeObserver == nil {
             storeObserver = ScheduleStore.shared.observeChanges { [weak self] in self?.reloadAgenda() }
         }
-        CalendarService.shared.onChange = { [weak self] in self?.reloadAgenda() }
+        if calendarObserver == nil {
+            calendarObserver = CalendarService.shared.observeChanges { [weak self] in self?.reloadAgenda() }
+        }
+        if activeObserver == nil {
+            activeObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.reloadAgenda() }
+            }
+        }
         reloadAgenda()
     }
 
@@ -120,16 +135,56 @@ final class CalendarPanelController: NSViewController {
             ScheduleStore.shared.removeObserver(storeObserver)
             self.storeObserver = nil
         }
-        CalendarService.shared.onChange = nil
+        if let calendarObserver {
+            CalendarService.shared.removeObserver(calendarObserver)
+            self.calendarObserver = nil
+        }
+        if let activeObserver {
+            NotificationCenter.default.removeObserver(activeObserver)
+            self.activeObserver = nil
+        }
+    }
+
+    func select(date: Date) {
+        monthCalendar.select(date: date)
+        if isViewLoaded { reloadAgenda() }
+    }
+
+    func createEvent(on date: Date) {
+        guard let window = view.window else { return }
+        CalendarEventEditorController.present(from: window, seed: .newEvent(on: date)) { [weak self] event in
+            self?.monthCalendar.select(date: event.startDate)
+            self?.reloadAgenda()
+        }
+    }
+
+    func createReminder(on date: Date) {
+        let calendar = Calendar.autoupdatingCurrent
+        let fireAt: Date
+        if calendar.isDateInToday(date) {
+            fireAt = Date().addingTimeInterval(30 * 60)
+        } else {
+            fireAt = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: date) ?? date
+        }
+        let alarm = SchedAlarm(
+            title: "New reminder",
+            fireAt: fireAt,
+            level: ScheduleStore.shared.store.defaultLevel
+        )
+        ScheduleStore.shared.upsert(alarm)
+        MainWindowController.shared.showAlarm(alarm.id)
     }
 
     @objc private func goToToday() {
-        monthCalendar.select(date: .now)
-        reloadAgenda()
+        select(date: .now)
     }
 
-    @objc private func openPlan() {
-        MainWindowController.shared.showSection(.schedule)
+    @objc private func addEvent() {
+        createEvent(on: monthCalendar.selectedDate)
+    }
+
+    @objc private func addReminder() {
+        createReminder(on: monthCalendar.selectedDate)
     }
 
     @objc private func requestCalendarAccess() {
@@ -140,15 +195,17 @@ final class CalendarPanelController: NSViewController {
     }
 
     private func reloadAgenda() {
+        guard isViewLoaded else { return }
         let date = monthCalendar.selectedDate
         let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
         formatter.dateStyle = .full
         formatter.timeStyle = .none
         selectedDateLabel.stringValue = formatter.string(from: date)
         agendaStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let reminderEntries = ScheduleStore.shared.store.alarms.compactMap { alarm -> AgendaEntry? in
-            guard alarm.enabled, let occurrence = reminderOccurrence(for: alarm, on: date) else { return nil }
+            guard alarm.enabled, !alarm.isTimer, let occurrence = reminderOccurrence(for: alarm, on: date) else { return nil }
             return AgendaEntry(
                 sortDate: occurrence,
                 allDay: false,
@@ -157,25 +214,29 @@ final class CalendarPanelController: NSViewController {
                 detail: alarm.note.isEmpty ? (alarm.repeatDaily ? "Daily Sched reminder" : "Sched reminder") : alarm.note,
                 color: SchedDesign.levelColor(alarm.level),
                 symbol: "bell.fill",
-                alarmID: alarm.id
+                alarmID: alarm.id,
+                eventIdentifier: nil
             )
         }
 
         let eventEntries = CalendarService.shared.events(on: date).map { event in
-            AgendaEntry(
+            let location = event.location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let detail = location.isEmpty ? event.calendar.title : "\(event.calendar.title) · \(location)"
+            return AgendaEntry(
                 sortDate: event.startDate,
                 allDay: event.isAllDay,
                 time: event.isAllDay ? "All day" : SchedTimeFormat.string(from: event.startDate),
                 title: event.title ?? "Untitled event",
-                detail: event.calendar.title,
+                detail: detail,
                 color: NSColor(cgColor: event.calendar.cgColor) ?? SchedDesign.accent,
                 symbol: "calendar",
-                alarmID: nil
+                alarmID: nil,
+                eventIdentifier: event.eventIdentifier
             )
         }
 
         if !CalendarService.shared.hasAccess {
-            agendaStack.addArrangedSubview(helper("Optionally include events from Calendar. Sched works without access."))
+            agendaStack.addArrangedSubview(helper("Connect Calendar to see events here and create new ones from Sched."))
             agendaStack.addArrangedSubview(accessButton)
         }
 
@@ -186,18 +247,11 @@ final class CalendarPanelController: NSViewController {
         }
 
         for entry in entries {
-            addAgendaRow(agendaRow(
-                time: entry.time,
-                title: entry.title,
-                detail: entry.detail,
-                color: entry.color,
-                symbol: entry.symbol,
-                alarmID: entry.alarmID
-            ))
+            addAgendaRow(agendaRow(entry))
         }
 
-        if entries.isEmpty {
-            agendaStack.addArrangedSubview(helper("Nothing scheduled for this day."))
+        if entries.isEmpty && CalendarService.shared.hasAccess {
+            agendaStack.addArrangedSubview(helper("Nothing scheduled for this day. Use + Event or + Reminder to add something."))
         }
     }
 
@@ -228,37 +282,40 @@ final class CalendarPanelController: NSViewController {
         let color: NSColor
         let symbol: String
         let alarmID: UUID?
+        let eventIdentifier: String?
     }
 
-    /// Width constraints are only valid after the row and stack share a view hierarchy.
     private func addAgendaRow(_ row: NSView) {
         agendaStack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalTo: agendaStack.widthAnchor).isActive = true
     }
 
-    private func agendaRow(time: String, title: String, detail: String, color: NSColor, symbol: String, alarmID: UUID?) -> NSView {
-        let row = SchedGlassSurface(cornerRadius: 12, tint: color.withAlphaComponent(0.10), interactive: false)
+    private func agendaRow(_ entry: AgendaEntry) -> NSView {
+        let row = SchedGlassSurface(cornerRadius: 12, tint: entry.color.withAlphaComponent(0.10), interactive: false)
         row.translatesAutoresizingMaskIntoConstraints = false
-        row.heightAnchor.constraint(greaterThanOrEqualToConstant: 66).isActive = true
-        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
-        icon.contentTintColor = color
-        let timeLabel = NSTextField(labelWithString: time)
+        row.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
+
+        let icon = NSImageView(image: NSImage(systemSymbolName: entry.symbol, accessibilityDescription: nil) ?? NSImage())
+        icon.contentTintColor = entry.color
+        let timeLabel = NSTextField(labelWithString: entry.time)
         timeLabel.font = SchedDesign.mono(11)
+        timeLabel.lineBreakMode = .byTruncatingTail
         SchedDesign.label(timeLabel, color: SchedDesign.inkMuted)
-        let titleLabel = NSTextField(labelWithString: title)
+
+        let titleLabel = SchedFadingLabel(entry.title)
         titleLabel.font = SchedDesign.title(14)
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
-        titleLabel.toolTip = title
+        titleLabel.toolTip = entry.title
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         SchedDesign.label(titleLabel)
-        let detailLabel = NSTextField(labelWithString: detail)
+
+        let detailLabel = NSTextField(wrappingLabelWithString: entry.detail)
         detailLabel.font = SchedDesign.body(11)
-        detailLabel.lineBreakMode = .byTruncatingTail
-        detailLabel.maximumNumberOfLines = 1
-        detailLabel.toolTip = detail
+        detailLabel.maximumNumberOfLines = 3
+        detailLabel.lineBreakMode = .byWordWrapping
+        detailLabel.toolTip = entry.detail
         detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         SchedDesign.label(detailLabel, color: SchedDesign.inkMuted)
+
         let text = NSStackView(views: [titleLabel, detailLabel])
         text.orientation = .vertical
         text.alignment = .leading
@@ -276,25 +333,30 @@ final class CalendarPanelController: NSViewController {
             content.topAnchor.constraint(equalTo: row.innerContentView.topAnchor, constant: 10),
             content.bottomAnchor.constraint(equalTo: row.innerContentView.bottomAnchor, constant: -10),
             icon.widthAnchor.constraint(equalToConstant: 16),
-            timeLabel.widthAnchor.constraint(equalToConstant: 64),
+            timeLabel.widthAnchor.constraint(equalToConstant: 62),
         ])
 
-        if let alarmID {
+        if let alarmID = entry.alarmID {
             let menu = NSMenu()
-            menu.addItem(agendaAction("Edit Reminder", symbol: "slider.horizontal.3", alarmID: alarmID, action: #selector(editAgendaReminder(_:))))
-            menu.addItem(agendaAction("Snooze 5 Minutes", symbol: "clock.arrow.circlepath", alarmID: alarmID, action: #selector(snoozeAgendaReminder(_:))))
-            menu.addItem(agendaAction("Disable", symbol: "pause.circle", alarmID: alarmID, action: #selector(disableAgendaReminder(_:))))
+            menu.addItem(agendaAction("Edit Reminder", symbol: "slider.horizontal.3", represented: alarmID.uuidString, action: #selector(editAgendaReminder(_:))))
+            menu.addItem(agendaAction("Add to Calendar…", symbol: "calendar.badge.plus", represented: alarmID.uuidString, action: #selector(pushReminderToCalendar(_:))))
+            menu.addItem(agendaAction("Snooze 5 Minutes", symbol: "clock.arrow.circlepath", represented: alarmID.uuidString, action: #selector(snoozeAgendaReminder(_:))))
+            menu.addItem(agendaAction("Disable", symbol: "pause.circle", represented: alarmID.uuidString, action: #selector(disableAgendaReminder(_:))))
             menu.addItem(.separator())
-            menu.addItem(agendaAction("Delete", symbol: "trash", alarmID: alarmID, action: #selector(deleteAgendaReminder(_:))))
+            menu.addItem(agendaAction("Delete", symbol: "trash", represented: alarmID.uuidString, action: #selector(deleteAgendaReminder(_:))))
+            row.menu = menu
+        } else if let identifier = entry.eventIdentifier {
+            let menu = NSMenu()
+            menu.addItem(agendaAction("Create Sched Reminder…", symbol: "bell.badge.plus", represented: identifier, action: #selector(createReminderFromEvent(_:))))
             row.menu = menu
         }
         return row
     }
 
-    private func agendaAction(_ title: String, symbol: String, alarmID: UUID, action: Selector) -> NSMenuItem {
+    private func agendaAction(_ title: String, symbol: String, represented: String, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
-        item.representedObject = alarmID.uuidString
+        item.representedObject = represented
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         return item
     }
@@ -309,11 +371,44 @@ final class CalendarPanelController: NSViewController {
         MainWindowController.shared.showAlarm(alarm.id)
     }
 
+    @objc private func pushReminderToCalendar(_ sender: NSMenuItem) {
+        guard let alarm = agendaAlarm(from: sender), let window = view.window else { return }
+        CalendarEventEditorController.present(from: window, seed: .reminder(alarm)) { event in
+            var updated = alarm
+            updated.calendarEventIdentifier = event.eventIdentifier
+            ScheduleStore.shared.upsert(updated)
+        }
+    }
+
+    @objc private func createReminderFromEvent(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String,
+              let event = CalendarService.shared.event(identifier: identifier) else { return }
+        let fireAt: Date
+        if event.isAllDay {
+            fireAt = Calendar.autoupdatingCurrent.date(bySettingHour: 9, minute: 0, second: 0, of: event.startDate) ?? event.startDate
+        } else {
+            fireAt = event.startDate
+        }
+        let noteParts = [event.location, event.notes]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let alarm = SchedAlarm(
+            title: SchedTextLimits.clean(event.title ?? "Calendar event", limit: SchedTextLimits.title),
+            note: SchedTextLimits.clean(noteParts.joined(separator: "\n"), limit: SchedTextLimits.note),
+            fireAt: fireAt,
+            level: ScheduleStore.shared.store.defaultLevel,
+            calendarEventIdentifier: identifier
+        )
+        ScheduleStore.shared.upsert(alarm)
+        MainWindowController.shared.showAlarm(alarm.id)
+    }
+
     @objc private func snoozeAgendaReminder(_ sender: NSMenuItem) {
         guard var alarm = agendaAlarm(from: sender) else { return }
         if alarm.repeatDaily {
             alarm.id = UUID()
             alarm.repeatDaily = false
+            alarm.calendarEventIdentifier = nil
         }
         alarm.fireAt = Date().addingTimeInterval(5 * 60)
         alarm.enabled = true
@@ -339,6 +434,7 @@ final class CalendarPanelController: NSViewController {
     private func helper(_ text: String) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
         label.font = SchedDesign.body(12)
+        label.maximumNumberOfLines = 0
         SchedDesign.label(label, color: SchedDesign.inkMuted)
         return label
     }
@@ -390,7 +486,7 @@ private final class SchedMonthCalendarView: NSView {
                 let button = SchedDayButton()
                 button.target = self
                 button.action = #selector(daySelected(_:))
-                button.heightAnchor.constraint(equalToConstant: 34).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 30).isActive = true
                 dayButtons.append(button)
                 row.addArrangedSubview(button)
             }

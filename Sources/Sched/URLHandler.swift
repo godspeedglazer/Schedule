@@ -8,6 +8,36 @@ enum URLHandler {
         let params = queryParams(url)
 
         switch host {
+        case "open":
+            switch (params["section"] ?? "plan").lowercased() {
+            case "calendar": MainWindowController.shared.showCalendar(date: .now)
+            case "timer":
+                MainWindowController.shared.showSection(.timer)
+                MainWindowController.shared.showWindow()
+            case "limits":
+                MainWindowController.shared.showSection(.limits)
+                MainWindowController.shared.showWindow()
+            case "preferences", "settings":
+                MainWindowController.shared.showSection(.settings)
+                MainWindowController.shared.showWindow()
+            default:
+                MainWindowController.shared.showSection(.schedule)
+                MainWindowController.shared.showWindow()
+            }
+
+        case "reminder":
+            let pathID = url.pathComponents.dropFirst().first
+            if let raw = params["id"] ?? pathID, let id = UUID(uuidString: raw) {
+                MainWindowController.shared.showAlarm(id)
+            } else {
+                MainWindowController.shared.showSection(.schedule)
+                MainWindowController.shared.showWindow()
+            }
+
+        case "calendar":
+            let date = params["date"].flatMap(parseISODate) ?? .now
+            MainWindowController.shared.showCalendar(date: date)
+
         case "timer", "in":
             let title = params["title"] ?? params["name"] ?? "Focus"
             let minutes = Int(params["minutes"] ?? params["m"] ?? "25") ?? 25
@@ -65,6 +95,14 @@ enum URLHandler {
             }
         }
         return out
+    }
+
+    private static func parseISODate(_ value: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: value)
     }
 
     private static func parseTimeToday(_ time: String) -> Date? {

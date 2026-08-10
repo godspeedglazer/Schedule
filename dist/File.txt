@@ -1,1 +1,0 @@
-/System/Applications/Utilities/Terminal.app

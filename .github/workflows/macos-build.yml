@@ -1,0 +1,21 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: swift --version
+      - name: clean build and tests
+        run: ./Scripts/verify-1.0.3.sh

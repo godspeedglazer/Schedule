@@ -12,16 +12,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 820, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = ""
-        window.minSize = NSSize(width: 780, height: 560)
+        window.minSize = NSSize(width: 720, height: 500)
+        window.maxSize = NSSize(width: 960, height: 680)
         window.collectionBehavior.insert(.fullScreenNone)
-        let restoredFrame = window.setFrameUsingName("Sched.MainWindow")
-        _ = window.setFrameAutosaveName("Sched.MainWindow")
+        let restoredFrame = window.setFrameUsingName("Sched.MainWindow.v1.0.3")
+        _ = window.setFrameAutosaveName("Sched.MainWindow.v1.0.3")
         if !restoredFrame {
             window.center()
         }
@@ -39,6 +40,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { nil }
 
     func showWindow() {
+        AppPresenceController.shared.mainWindowWillShow()
         NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
@@ -50,6 +52,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             schedule.selectAlarm(id)
         }
         showWindow()
+    }
+
+    func showCalendar(date: Date = .now) {
+        showSection(.calendar)
+        if let calendar = panel(for: .calendar) as? CalendarPanelController {
+            calendar.select(date: date)
+        }
+        showWindow()
+    }
+
+    func createCalendarEvent(on date: Date = .now) {
+        showSection(.calendar)
+        showWindow()
+        (panel(for: .calendar) as? CalendarPanelController)?.createEvent(on: date)
+    }
+
+    func createReminder(on date: Date = .now) {
+        showSection(.calendar)
+        showWindow()
+        (panel(for: .calendar) as? CalendarPanelController)?.createReminder(on: date)
     }
 
     func showSection(_ section: SchedSection) {
@@ -178,8 +200,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if ScheduleStore.shared.store.headlessWhenClosed {
             sender.orderOut(nil)
+            AppPresenceController.shared.mainWindowDidHide()
             return false
         }
         return true
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        AppPresenceController.shared.mainWindowDidHide()
     }
 }

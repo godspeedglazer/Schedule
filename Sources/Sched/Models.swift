@@ -2,11 +2,26 @@ import Foundation
 
 enum SchedTextLimits {
     static let title = 120
-    static let note = 500
+    static let note = 1200
     static let action = 300
 
     static func clean(_ value: String, limit: Int) -> String {
         String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(limit))
+    }
+}
+
+
+enum DockPresence: String, Codable, CaseIterable {
+    case always
+    case whileWindowOpen
+    case never
+
+    var label: String {
+        switch self {
+        case .always: "Always"
+        case .whileWindowOpen: "While the window is open"
+        case .never: "Never"
+        }
     }
 }
 
@@ -227,6 +242,7 @@ struct SchedAlarm: Codable, Identifiable, Equatable {
     var enabled: Bool
     var isTimer: Bool
     var pausedRemainingSeconds: Int?
+    var calendarEventIdentifier: String?
 
     init(
         id: UUID = UUID(),
@@ -239,7 +255,8 @@ struct SchedAlarm: Codable, Identifiable, Equatable {
         repeatDaily: Bool = false,
         enabled: Bool = true,
         isTimer: Bool = false,
-        pausedRemainingSeconds: Int? = nil
+        pausedRemainingSeconds: Int? = nil,
+        calendarEventIdentifier: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -252,11 +269,12 @@ struct SchedAlarm: Codable, Identifiable, Equatable {
         self.enabled = enabled
         self.isTimer = isTimer
         self.pausedRemainingSeconds = pausedRemainingSeconds
+        self.calendarEventIdentifier = calendarEventIdentifier
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, note, fireAt, level, action, sound, repeatDaily, enabled
-        case isTimer, pausedRemainingSeconds
+        case isTimer, pausedRemainingSeconds, calendarEventIdentifier
     }
 
     init(from decoder: Decoder) throws {
@@ -272,6 +290,7 @@ struct SchedAlarm: Codable, Identifiable, Equatable {
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         isTimer = try c.decodeIfPresent(Bool.self, forKey: .isTimer) ?? false
         pausedRemainingSeconds = try c.decodeIfPresent(Int.self, forKey: .pausedRemainingSeconds)
+        calendarEventIdentifier = try c.decodeIfPresent(String.self, forKey: .calendarEventIdentifier)
     }
 }
 
@@ -288,6 +307,7 @@ struct SchedStore: Codable {
     var soundVolume: Double
     var systemNotificationsEnabled: Bool
     var headlessWhenClosed: Bool
+    var dockPresence: DockPresence
     var menuBarShowIcon: Bool
     var menuBarShowDate: Bool
     var menuBarShowTime: Bool
@@ -313,6 +333,7 @@ struct SchedStore: Codable {
         soundVolume: 0.8,
         systemNotificationsEnabled: true,
         headlessWhenClosed: true,
+        dockPresence: .whileWindowOpen,
         menuBarShowIcon: true,
         menuBarShowDate: false,
         menuBarShowTime: true,
@@ -329,7 +350,7 @@ struct SchedStore: Codable {
     enum CodingKeys: String, CodingKey {
         case alarms, appWatches, defaultLevel, snoozeMinutes, idleMinutesBeforeNudge
         case launchAtLogin, playSoundOnAlert, repeatSoundOnAlert, defaultSound, soundVolume
-        case systemNotificationsEnabled, headlessWhenClosed
+        case systemNotificationsEnabled, headlessWhenClosed, dockPresence
         case menuBarShowIcon, menuBarShowDate, menuBarShowTime, menuBarShowSeconds
         case menuBarClockEnabled, menuBarTimerEnabled, menuBarTimerHideWhenIdle
         case floatingTimerAutoShow, floatingTimerAlwaysOnTop
@@ -349,6 +370,7 @@ struct SchedStore: Codable {
         soundVolume: Double,
         systemNotificationsEnabled: Bool,
         headlessWhenClosed: Bool,
+        dockPresence: DockPresence,
         menuBarShowIcon: Bool,
         menuBarShowDate: Bool,
         menuBarShowTime: Bool,
@@ -373,6 +395,7 @@ struct SchedStore: Codable {
         self.soundVolume = soundVolume
         self.systemNotificationsEnabled = systemNotificationsEnabled
         self.headlessWhenClosed = headlessWhenClosed
+        self.dockPresence = dockPresence
         self.menuBarShowIcon = menuBarShowIcon
         self.menuBarShowDate = menuBarShowDate
         self.menuBarShowTime = menuBarShowTime
@@ -400,6 +423,7 @@ struct SchedStore: Codable {
         soundVolume = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .soundVolume) ?? 0.8))
         systemNotificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .systemNotificationsEnabled) ?? true
         headlessWhenClosed = try c.decodeIfPresent(Bool.self, forKey: .headlessWhenClosed) ?? true
+        dockPresence = try c.decodeIfPresent(DockPresence.self, forKey: .dockPresence) ?? .whileWindowOpen
         menuBarShowIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarShowIcon) ?? true
         menuBarShowDate = try c.decodeIfPresent(Bool.self, forKey: .menuBarShowDate) ?? false
         menuBarShowTime = try c.decodeIfPresent(Bool.self, forKey: .menuBarShowTime) ?? true

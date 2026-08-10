@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         LoginItemHelper.sync(enabled: ScheduleStore.shared.store.launchAtLogin)
 
         MainWindowController.shared.showWindow()
+        AppPresenceController.shared.start(mainWindowVisible: true)
         // Create the clock first and the timer second. macOS normally places later
         // status items to the left, giving Sched the preferred [timer] [clock] order
         // while still allowing the user to rearrange them.
@@ -124,15 +125,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSMenuItem(title: title, action: action, keyEquivalent: key)
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        CalendarService.shared.refresh()
+        AppWatchMonitor.shared.evaluateNow()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !ScheduleStore.shared.store.headlessWhenClosed
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            MainWindowController.shared.showWindow()
-        }
-        return true
+        // Even a completely headless Sched process must be recoverable by opening
+        // the app again from Finder, Spotlight, or the Dock.
+        MainWindowController.shared.showWindow()
+        return false
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
@@ -229,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc private func workspaceDidWake(_ notification: Notification) {
         Scheduler.shared.handleSystemWake()
+        CalendarService.shared.refresh()
         AppWatchMonitor.shared.evaluateNow()
         AccessibilityMonitor.shared.start()
         clockStatus.refreshForSystemTimeChange()
@@ -237,6 +244,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc private func systemTimeDidChange(_ notification: Notification) {
         Scheduler.shared.handleSystemTimeChange()
+        CalendarService.shared.refresh()
+        AppWatchMonitor.shared.evaluateNow()
         clockStatus.refreshForSystemTimeChange()
         timerStatus.refreshForSystemTimeChange()
     }

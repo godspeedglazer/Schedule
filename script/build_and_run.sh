@@ -17,16 +17,16 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 pkill -x "Keen" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
-swift build
+swift build --product Sched
 BUILD_DIR="$(swift build --show-bin-path)"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
-cp "$BUILD_DIR/Keen" "$APP_BINARY"
+cp "$BUILD_DIR/Sched" "$APP_BINARY"
 cp "$ROOT_DIR/Support/Info.plist" "$APP_CONTENTS/Info.plist"
 chmod +x "$APP_BINARY"
 
-ICON_SOURCE="$ROOT_DIR/Sources/Keen/Resources/AppIcon.svg"
+ICON_SOURCE="$ROOT_DIR/Sources/Sched/Resources/AppIcon.svg"
 ICON_THUMBNAILS="$DIST_DIR/icon-render"
 ICONSET="$DIST_DIR/AppIcon.iconset"
 rm -rf "$ICON_THUMBNAILS" "$ICONSET"
@@ -50,7 +50,7 @@ make_icon 512 icon_512x512.png
 cp "$ICON_MASTER" "$ICONSET/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP_RESOURCES/AppIcon.icns"
 
-RESOURCE_BUNDLE="$(find "$BUILD_DIR" -maxdepth 1 -type d -name 'Keen_Keen.bundle' -print -quit)"
+RESOURCE_BUNDLE="$(find "$BUILD_DIR" -maxdepth 1 -type d -name 'Sched_Sched.bundle' -print -quit)"
 if [[ -n "$RESOURCE_BUNDLE" ]]; then
     cp -R "$RESOURCE_BUNDLE" "$APP_RESOURCES/"
 fi

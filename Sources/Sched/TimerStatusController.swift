@@ -40,7 +40,7 @@ final class TimerStatusController: NSObject, NSMenuDelegate {
             && !(preferences.menuBarTimerHideWhenIdle && snapshot == nil)
         item.isVisible = shouldShow
         guard shouldShow else {
-            configureRefreshTimer(active: false)
+            stopRefreshTimer()
             return
         }
 
@@ -57,7 +57,7 @@ final class TimerStatusController: NSObject, NSMenuDelegate {
                 ? "\(snapshot.title) · paused"
                 : "\(snapshot.title) · \(snapshot.formattedRemaining) remaining"
             item.length = NSStatusItem.variableLength
-            configureRefreshTimer(active: true)
+            configureRefreshTimer(active: !snapshot.isPaused)
         } else {
             button.image = NSImage(systemSymbolName: "timer", accessibilityDescription: "Sched timer")
             button.image?.isTemplate = true
@@ -66,12 +66,16 @@ final class TimerStatusController: NSObject, NSMenuDelegate {
             button.font = NSFont.menuBarFont(ofSize: 0)
             button.toolTip = "Sched Timer"
             item.length = NSStatusItem.squareLength
-            configureRefreshTimer(active: false)
+            stopRefreshTimer()
         }
     }
 
     private func configureRefreshTimer(active: Bool) {
-        let interval: TimeInterval = active ? 1 : 30
+        guard active else {
+            stopRefreshTimer()
+            return
+        }
+        let interval: TimeInterval = 1
         guard refreshTimer == nil || refreshInterval != interval else { return }
         refreshTimer?.invalidate()
         refreshInterval = interval
@@ -80,6 +84,12 @@ final class TimerStatusController: NSObject, NSMenuDelegate {
         }
         refreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopRefreshTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        refreshInterval = nil
     }
 
     private func rebuildMenu() {
@@ -111,17 +121,25 @@ final class TimerStatusController: NSObject, NSMenuDelegate {
             statusMenu.addItem(menuItem("Finish", symbol: "checkmark", action: #selector(finish)))
             statusMenu.addItem(menuItem("Cancel Timer", symbol: "xmark", action: #selector(cancel)))
         } else {
-            let start = NSMenuItem(title: "Start Timer", action: nil, keyEquivalent: "")
-            start.image = NSImage(systemSymbolName: "timer", accessibilityDescription: nil)
-            let quick = NSMenu()
+            let quickStart = NSMenuItem()
+            quickStart.view = TimerQuickStartMenuView { [weak self] minutes in
+                _ = TimerService.shared.start(minutes: minutes)
+                self?.statusMenu.cancelTracking()
+                self?.refresh()
+            }
+            statusMenu.addItem(quickStart)
+
+            let presetsRoot = NSMenuItem(title: "Saved durations", action: nil, keyEquivalent: "")
+            presetsRoot.image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
+            let presets = NSMenu(title: "Saved durations")
             for minutes in [5, 15, 25, 50, 90] {
                 let item = NSMenuItem(title: "\(minutes) minutes", action: #selector(startPreset(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = minutes
-                quick.addItem(item)
+                presets.addItem(item)
             }
-            start.submenu = quick
-            statusMenu.addItem(start)
+            presetsRoot.submenu = presets
+            statusMenu.addItem(presetsRoot)
         }
 
         statusMenu.addItem(.separator())
@@ -141,6 +159,7 @@ final class TimerStatusController: NSObject, NSMenuDelegate {
     @objc private func startPreset(_ sender: NSMenuItem) {
         let minutes = sender.representedObject as? Int ?? 25
         _ = TimerService.shared.start(minutes: minutes)
+        statusMenu.cancelTracking()
     }
 
     @objc private func pauseOrResume() { TimerService.shared.pauseOrResume() }

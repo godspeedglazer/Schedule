@@ -6,8 +6,8 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let statusMenu = NSMenu()
     private var timer: Timer?
-    private var timerInterval: TimeInterval?
     private var storeObserver: UUID?
+    private var calendarObserver: UUID?
 
     func install() {
         guard statusItem == nil else { return }
@@ -20,23 +20,23 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
         item.menu = statusMenu
 
         storeObserver = ScheduleStore.shared.observeChanges { [weak self] in self?.refresh() }
+        calendarObserver = CalendarService.shared.observeChanges { [weak self] in self?.refresh() }
         refresh()
     }
 
-    func refreshForSystemTimeChange() {
-        refresh()
-    }
+    func refreshForSystemTimeChange() { refresh() }
 
-    func menuWillOpen(_ menu: NSMenu) {
-        rebuildMenu()
-    }
+    func menuWillOpen(_ menu: NSMenu) { rebuildMenu() }
 
     private func refresh() {
         guard let item = statusItem, let button = item.button else { return }
         let preferences = ScheduleStore.shared.store
         item.isVisible = preferences.menuBarClockEnabled
+        guard preferences.menuBarClockEnabled else {
+            stopRefreshTimer()
+            return
+        }
         configureRefreshTimer(for: preferences)
-        guard preferences.menuBarClockEnabled else { return }
 
         button.image = preferences.menuBarShowIcon ? statusIcon() : nil
         button.image?.isTemplate = true
@@ -68,15 +68,29 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
     }
 
     private func configureRefreshTimer(for preferences: SchedStore) {
-        let interval: TimeInterval = preferences.menuBarShowSeconds ? 1 : 30
-        guard timerInterval != interval || timer == nil else { return }
         timer?.invalidate()
-        timerInterval = interval
-        let refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+        let now = Date()
+        let nextFire: Date
+        if preferences.menuBarShowSeconds {
+            nextFire = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970) + 1)
+        } else {
+            let calendar = Calendar.autoupdatingCurrent
+            let nextMinute = now.addingTimeInterval(60)
+            nextFire = calendar.date(bySetting: .second, value: 0, of: nextMinute) ?? nextMinute
+        }
+        let refreshTimer = Timer(fire: nextFire, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.timer = nil
+                self?.refresh()
+            }
         }
         timer = refreshTimer
         RunLoop.main.add(refreshTimer, forMode: .common)
+    }
+
+    private func stopRefreshTimer() {
+        timer?.invalidate()
+        timer = nil
     }
 
     private func rebuildMenu() {
@@ -84,23 +98,31 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
         statusMenu.minimumWidth = 292
 
         let calendarItem = NSMenuItem()
-        calendarItem.view = ClockCalendarMenuView()
+        calendarItem.view = ClockCalendarMenuView { [weak self] date in
+            self?.statusMenu.cancelTracking()
+            MainWindowController.shared.showCalendar(date: date)
+        }
         statusMenu.addItem(calendarItem)
 
-        let todayFormatter = DateFormatter()
-        todayFormatter.locale = .autoupdatingCurrent
-        todayFormatter.dateStyle = .full
-        todayFormatter.timeStyle = .none
-        let today = NSMenuItem(title: todayFormatter.string(from: .now), action: nil, keyEquivalent: "")
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = .autoupdatingCurrent
+        dateFormatter.dateStyle = .full
+        dateFormatter.timeStyle = .none
+        let today = NSMenuItem(title: dateFormatter.string(from: .now), action: nil, keyEquivalent: "")
         today.isEnabled = false
         statusMenu.addItem(today)
+        statusMenu.addItem(.separator())
+
+        addUpcomingSection()
+        addDailiesSection()
+        addAllRemindersSection()
+        addCalendarTodaySection()
 
         statusMenu.addItem(.separator())
-        addTodayAgenda(to: statusMenu)
-
+        statusMenu.addItem(menuItem("New Event…", symbol: "calendar.badge.plus", action: #selector(newEvent)))
+        statusMenu.addItem(menuItem("New Reminder…", symbol: "bell.badge.plus", action: #selector(newReminder)))
         statusMenu.addItem(.separator())
         statusMenu.addItem(menuItem("Open Calendar", symbol: "calendar", action: #selector(openCalendar)))
-        statusMenu.addItem(menuItem("Open Plan", symbol: "list.bullet.rectangle", action: #selector(openPlan)))
         statusMenu.addItem(menuItem("Preferences", symbol: "gearshape", action: #selector(openSettings)))
 
         let dismiss = menuItem("Dismiss Alerts", symbol: "bell.slash", action: #selector(dismissAlerts))
@@ -111,73 +133,95 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
         statusMenu.addItem(menuItem("Quit Sched", action: #selector(quit)))
     }
 
-    private struct TodayAgendaEntry {
-        enum Kind {
-            case alarm(SchedAlarm)
-            case event(EKEvent)
-        }
+    private func addUpcomingSection() {
+        let upcoming = ScheduleStore.shared.enabledAlarms()
+            .filter { !$0.isTimer && !$0.repeatDaily && $0.fireAt >= .now }
+            .prefix(4)
 
-        let date: Date
-        let isAllDay: Bool
-        let kind: Kind
+        let heading = disabledItem("UP NEXT")
+        statusMenu.addItem(heading)
+        if upcoming.isEmpty {
+            statusMenu.addItem(disabledItem("No one-time reminders ahead"))
+        } else {
+            for alarm in upcoming { statusMenu.addItem(alarmMenuItem(alarm)) }
+        }
     }
 
-    private func addTodayAgenda(to menu: NSMenu) {
-        let calendar = Calendar.autoupdatingCurrent
-        let now = Date()
-        let alarms = ScheduleStore.shared.enabledAlarms()
-            .filter { !$0.isTimer && calendar.isDate($0.fireAt, inSameDayAs: now) }
-            .map { TodayAgendaEntry(date: $0.fireAt, isAllDay: false, kind: .alarm($0)) }
-
-        var entries = alarms
-        if CalendarService.shared.hasAccess {
-            entries += CalendarService.shared.events(on: now).map { event in
-                TodayAgendaEntry(date: event.startDate, isAllDay: event.isAllDay, kind: .event(event))
+    private func addDailiesSection() {
+        let dailies = ScheduleStore.shared.store.alarms
+            .filter { $0.enabled && !$0.isTimer && $0.repeatDaily }
+            .sorted { left, right in
+                let calendar = Calendar.autoupdatingCurrent
+                let l = calendar.dateComponents([.hour, .minute], from: left.fireAt)
+                let r = calendar.dateComponents([.hour, .minute], from: right.fireAt)
+                let leftMinutes = (l.hour ?? 0) * 60 + (l.minute ?? 0)
+                let rightMinutes = (r.hour ?? 0) * 60 + (r.minute ?? 0)
+                return leftMinutes < rightMinutes
             }
-        }
-        entries.sort { left, right in
-            if left.isAllDay != right.isAllDay { return left.isAllDay && !right.isAllDay }
-            return left.date < right.date
-        }
+        guard !dailies.isEmpty else { return }
 
-        if entries.isEmpty {
-            if CalendarService.shared.hasAccess {
-                let empty = NSMenuItem(title: "Nothing scheduled today", action: nil, keyEquivalent: "")
-                empty.isEnabled = false
-                menu.addItem(empty)
-            } else {
-                let access = menuItem("Enable Calendar Access…", symbol: "calendar.badge.plus", action: #selector(requestCalendarAccess))
-                menu.addItem(access)
+        let root = NSMenuItem(title: "Dailies", action: nil, keyEquivalent: "")
+        root.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: nil)
+        let submenu = NSMenu(title: "Dailies")
+        for alarm in dailies { submenu.addItem(alarmMenuItem(alarm)) }
+        submenu.addItem(.separator())
+        let manage = NSMenuItem(title: "Manage Dailies…", action: #selector(openPlan), keyEquivalent: "")
+        manage.target = self
+        submenu.addItem(manage)
+        root.submenu = submenu
+        statusMenu.addItem(root)
+    }
 
-                if let next = ScheduleStore.shared.enabledAlarms().first(where: { !$0.isTimer }) {
-                    let heading = NSMenuItem(title: "Next Reminder", action: nil, keyEquivalent: "")
-                    heading.isEnabled = false
-                    menu.addItem(heading)
-                    menu.addItem(alarmMenuItem(next))
-                }
-            }
+    private func addAllRemindersSection() {
+        let alarms = ScheduleStore.shared.enabledAlarms().filter { !$0.isTimer }
+        guard !alarms.isEmpty else { return }
+
+        let root = NSMenuItem(title: "All Reminders", action: nil, keyEquivalent: "")
+        root.image = NSImage(systemSymbolName: "list.bullet", accessibilityDescription: nil)
+        let submenu = NSMenu(title: "All Reminders")
+        for alarm in alarms {
+            let item = alarmMenuItem(alarm)
+            let context = SchedTimeFormat.dateContext(from: alarm.fireAt)
+            item.title = "\(context) · \(Self.alarmMenuTitle(alarm))"
+            submenu.addItem(item)
+        }
+        root.submenu = submenu
+        statusMenu.addItem(root)
+    }
+
+    private func addCalendarTodaySection() {
+        statusMenu.addItem(.separator())
+        statusMenu.addItem(disabledItem("TODAY IN CALENDAR"))
+
+        guard CalendarService.shared.hasAccess else {
+            statusMenu.addItem(menuItem("Enable Calendar Access…", symbol: "calendar.badge.plus", action: #selector(requestCalendarAccess)))
             return
         }
 
-        for entry in entries.prefix(6) {
-            switch entry.kind {
-            case .alarm(let alarm):
-                menu.addItem(alarmMenuItem(alarm))
-            case .event(let event):
-                let time = event.isAllDay ? "All day" : SchedTimeFormat.string(from: event.startDate)
-                let title = "\(time)  \(Self.compact(event.title ?? "Calendar event", limit: 24))"
-                let item = NSMenuItem(title: title, action: #selector(openCalendar), keyEquivalent: "")
-                item.target = self
-                item.image = NSImage(systemSymbolName: "calendar", accessibilityDescription: nil)
-                item.toolTip = event.calendar.title
-                menu.addItem(item)
-            }
+        let events = CalendarService.shared.events(on: .now)
+        if events.isEmpty {
+            statusMenu.addItem(disabledItem("No Calendar events today"))
+            return
         }
 
-        if entries.count > 6 {
-            let more = NSMenuItem(title: "+\(entries.count - 6) more today", action: #selector(openCalendar), keyEquivalent: "")
-            more.target = self
-            menu.addItem(more)
+        for event in events.prefix(5) {
+            let time = event.isAllDay ? "All day" : SchedTimeFormat.string(from: event.startDate)
+            let item = NSMenuItem(
+                title: "\(time)  \(Self.compact(event.title ?? "Calendar event", limit: 24))",
+                action: #selector(openCalendarEvent(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = event.startDate
+            item.image = NSImage(systemSymbolName: "calendar", accessibilityDescription: nil)
+            item.toolTip = [event.title, event.location, event.calendar.title]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            statusMenu.addItem(item)
+        }
+        if events.count > 5 {
+            statusMenu.addItem(menuItem("\(events.count - 5) more…", action: #selector(openCalendar)))
         }
     }
 
@@ -185,24 +229,14 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
         let item = NSMenuItem(title: Self.alarmMenuTitle(alarm), action: #selector(openAlarm(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = alarm.id.uuidString
-        item.image = NSImage(systemSymbolName: "bell.fill", accessibilityDescription: nil)
+        item.image = NSImage(systemSymbolName: alarm.repeatDaily ? "repeat" : "bell.fill", accessibilityDescription: nil)
         item.toolTip = alarm.note.isEmpty ? alarm.title : "\(alarm.title)\n\(alarm.note)"
-
-        let submenu = NSMenu()
-        submenu.addItem(alarmActionItem("Open in Plan", symbol: "arrow.up.forward.app", alarm: alarm, action: #selector(openAlarm(_:))))
-        submenu.addItem(alarmActionItem("Snooze 5 Minutes", symbol: "clock.arrow.circlepath", alarm: alarm, action: #selector(snoozeAlarm(_:))))
-        submenu.addItem(alarmActionItem("Disable", symbol: "pause.circle", alarm: alarm, action: #selector(disableAlarm(_:))))
-        submenu.addItem(.separator())
-        submenu.addItem(alarmActionItem("Delete", symbol: "trash", alarm: alarm, action: #selector(deleteAlarm(_:))))
-        item.submenu = submenu
         return item
     }
 
-    private func alarmActionItem(_ title: String, symbol: String, alarm: SchedAlarm, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        item.representedObject = alarm.id.uuidString
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+    private func disabledItem(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
         return item
     }
 
@@ -218,8 +252,7 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
     }
 
     private static func alarmMenuTitle(_ alarm: SchedAlarm) -> String {
-        let time = SchedTimeFormat.string(from: alarm.fireAt)
-        return "\(time)  \(compact(alarm.title, limit: 24))"
+        "\(SchedTimeFormat.string(from: alarm.fireAt))  \(compact(alarm.title, limit: 25))"
     }
 
     private static func compact(_ value: String, limit: Int) -> String {
@@ -233,38 +266,12 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openAlarm(_ sender: NSMenuItem) {
-        guard let alarm = alarm(from: sender) else {
-            openPlan()
-            return
-        }
+        guard let alarm = alarm(from: sender) else { return }
         MainWindowController.shared.showAlarm(alarm.id)
     }
 
-    @objc private func snoozeAlarm(_ sender: NSMenuItem) {
-        guard var alarm = alarm(from: sender) else { return }
-        if alarm.repeatDaily {
-            alarm.id = UUID()
-            alarm.repeatDaily = false
-        }
-        alarm.fireAt = Date().addingTimeInterval(5 * 60)
-        alarm.enabled = true
-        alarm.pausedRemainingSeconds = nil
-        ScheduleStore.shared.upsert(alarm)
-    }
-
-    @objc private func disableAlarm(_ sender: NSMenuItem) {
-        guard var alarm = alarm(from: sender) else { return }
-        alarm.enabled = false
-        AlarmAudioService.shared.stop(alarmID: alarm.id)
-        InterventionManager.shared.dismiss(alarmID: alarm.id)
-        ScheduleStore.shared.upsert(alarm)
-    }
-
-    @objc private func deleteAlarm(_ sender: NSMenuItem) {
-        guard let alarm = alarm(from: sender) else { return }
-        AlarmAudioService.shared.stop(alarmID: alarm.id)
-        InterventionManager.shared.dismiss(alarmID: alarm.id)
-        ScheduleStore.shared.remove(id: alarm.id)
+    @objc private func openCalendarEvent(_ sender: NSMenuItem) {
+        MainWindowController.shared.showCalendar(date: (sender.representedObject as? Date) ?? .now)
     }
 
     @objc private func requestCalendarAccess() {
@@ -274,15 +281,15 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
         }
     }
 
+    @objc private func newEvent() { MainWindowController.shared.createCalendarEvent(on: .now) }
+    @objc private func newReminder() { MainWindowController.shared.createReminder(on: .now) }
+
     @objc private func openPlan() {
         MainWindowController.shared.showSection(.schedule)
         MainWindowController.shared.showWindow()
     }
 
-    @objc private func openCalendar() {
-        MainWindowController.shared.showSection(.calendar)
-        MainWindowController.shared.showWindow()
-    }
+    @objc private func openCalendar() { MainWindowController.shared.showCalendar(date: .now) }
 
     @objc private func openSettings() {
         MainWindowController.shared.showSection(.settings)

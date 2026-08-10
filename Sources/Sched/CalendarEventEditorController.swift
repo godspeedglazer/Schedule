@@ -88,7 +88,7 @@ final class CalendarEventEditorController: NSViewController {
             sheet.setContentSize(NSSize(width: 460, height: 420))
             controller.sheetWindow = sheet
             controller.parentWindow = parent
-            parent.beginSheet(sheet)
+            parent.beginSheet(sheet, completionHandler: nil)
         }
     }
 
