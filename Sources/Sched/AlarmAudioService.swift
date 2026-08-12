@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 final class AlarmAudioService {
     static let shared = AlarmAudioService()
-    static let maximumManagedSoundDuration: TimeInterval = 5
+    nonisolated static let maximumManagedSoundDuration: TimeInterval = 5
 
     private var systemPlayers: [UUID: NSSound] = [:]
     private var filePlayers: [UUID: AVAudioPlayer] = [:]

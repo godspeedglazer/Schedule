@@ -6,15 +6,14 @@ APP_NAME="Sched"
 BUNDLE_ID="com.erichspringer.sched"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="$ROOT_DIR/dist"
+# `dist` belonged to a prior, externally-owned build. Keep this checkout's
+# generated app in a writable, self-contained build location instead.
+DIST_DIR="$ROOT_DIR/Build"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
-
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-pkill -x "Keen" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
 swift build --product Sched
@@ -31,8 +30,14 @@ ICON_THUMBNAILS="$DIST_DIR/icon-render"
 ICONSET="$DIST_DIR/AppIcon.iconset"
 rm -rf "$ICON_THUMBNAILS" "$ICONSET"
 mkdir -p "$ICON_THUMBNAILS" "$ICONSET"
-qlmanage -t -s 1024 -o "$ICON_THUMBNAILS" "$ICON_SOURCE" >/dev/null
-ICON_MASTER="$ICON_THUMBNAILS/AppIcon.svg.png"
+ICON_MASTER="$ICON_THUMBNAILS/AppIcon.png"
+if ! sips -s format png "$ICON_SOURCE" --out "$ICON_MASTER" >/dev/null 2>&1; then
+    # Older macOS releases may not expose SVG input through sips. Quick Look
+    # remains a compatibility fallback for the macOS 14 deployment target.
+    qlmanage -t -s 1024 -o "$ICON_THUMBNAILS" "$ICON_SOURCE" >/dev/null
+    ICON_MASTER="$ICON_THUMBNAILS/AppIcon.svg.png"
+fi
+test -s "$ICON_MASTER"
 make_icon() {
     local pixels="$1"
     local name="$2"
@@ -58,6 +63,9 @@ fi
 codesign --force --sign - --deep "$APP_BUNDLE" >/dev/null
 
 open_app() {
+    # Stop only the development bundle produced by this checkout. A package
+    # build must never terminate a separately installed copy of Sched.
+    pkill -f "$APP_BINARY" >/dev/null 2>&1 || true
     /usr/bin/open -n "$APP_BUNDLE"
 }
 

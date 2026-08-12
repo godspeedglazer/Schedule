@@ -11,21 +11,12 @@ let package = Package(
         .executableTarget(
             name: "Sched",
             path: "Sources/Sched",
-            resources: [.process("Resources")],
-            swiftSettings: [
-                // 1.0.3 is a stabilization release. Keep the Swift 6 toolchain,
-                // but compile this target in Swift 5 language mode until the
-                // AppKit/MainActor migration is completed and verified on macOS.
-                .swiftLanguageMode(.v5),
-            ]
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "SchedTests",
             dependencies: ["Sched"],
-            path: "Tests/SchedTests",
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
+            path: "Tests/SchedTests"
         ),
     ]
 )

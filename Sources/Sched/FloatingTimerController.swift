@@ -29,6 +29,7 @@ final class FloatingTimerController: NSWindowController, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.backgroundColor = .clear
+        SchedDesign.applyWindowAppearance(panel)
         panel.isOpaque = false
         panel.hasShadow = true
         panel.minSize = NSSize(width: 270, height: 118)
@@ -68,7 +69,7 @@ final class FloatingTimerController: NSWindowController, NSWindowDelegate {
             window?.center()
         }
         window?.orderFrontRegardless()
-        startTicks()
+        updateTicks()
     }
 
     func hide() {
@@ -138,6 +139,7 @@ final class FloatingTimerController: NSWindowController, NSWindowDelegate {
         } else {
             hide()
         }
+        updateTicks()
     }
 
     private func preferencesChanged() {
@@ -153,11 +155,18 @@ final class FloatingTimerController: NSWindowController, NSWindowDelegate {
         window?.level = ScheduleStore.shared.store.floatingTimerAlwaysOnTop ? .floating : .normal
     }
 
-    private func startTicks() {
+    private func updateTicks() {
+        let shouldTick = window?.isVisible == true && TimerService.shared.snapshot()?.isPaused == false
+        guard shouldTick else {
+            tickTimer?.invalidate()
+            tickTimer = nil
+            return
+        }
         guard tickTimer == nil else { return }
         let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        timer.tolerance = 0.1
         tickTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
@@ -183,6 +192,7 @@ final class FloatingTimerController: NSWindowController, NSWindowDelegate {
     @objc private func pauseOrResume() {
         TimerService.shared.pauseOrResume()
         refresh()
+        updateTicks()
     }
 
     @objc private func addFive() {

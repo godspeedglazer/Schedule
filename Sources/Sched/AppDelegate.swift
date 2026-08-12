@@ -79,10 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         redo.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(redo)
         editMenu.addItem(.separator())
-        editMenu.addItem(responderItem("Cut", action: Selector(("cut:")), key: "x"))
-        editMenu.addItem(responderItem("Copy", action: Selector(("copy:")), key: "c"))
-        editMenu.addItem(responderItem("Paste", action: Selector(("paste:")), key: "v"))
-        editMenu.addItem(responderItem("Select All", action: Selector(("selectAll:")), key: "a"))
+        editMenu.addItem(responderItem("Cut", action: #selector(NSText.cut(_:)), key: "x"))
+        editMenu.addItem(responderItem("Copy", action: #selector(NSText.copy(_:)), key: "c"))
+        editMenu.addItem(responderItem("Paste", action: #selector(NSText.paste(_:)), key: "v"))
+        editMenu.addItem(responderItem("Select All", action: #selector(NSText.selectAll(_:)), key: "a"))
 
         let viewRoot = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
@@ -92,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         viewMenu.addItem(menuItem("Calendar", action: #selector(openCalendar), key: "2"))
         viewMenu.addItem(menuItem("Timer", action: #selector(openTimer), key: "3"))
         viewMenu.addItem(menuItem("Limits", action: #selector(openLimits), key: "4"))
+        viewMenu.addItem(menuItem("AI", action: #selector(openAI), key: "5"))
 
         let timerRoot = NSMenuItem()
         let timerMenu = NSMenu(title: "Timer")
@@ -108,8 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windowMenu = NSMenu(title: "Window")
         windowRoot.submenu = windowMenu
         main.addItem(windowRoot)
-        windowMenu.addItem(responderItem("Minimize", action: Selector(("performMiniaturize:")), key: "m"))
-        windowMenu.addItem(responderItem("Zoom", action: Selector(("performZoom:"))))
+        windowMenu.addItem(responderItem("Minimize", action: #selector(NSWindow.performMiniaturize(_:)), key: "m"))
+        windowMenu.addItem(responderItem("Zoom", action: #selector(NSWindow.performZoom(_:))))
         NSApp.windowsMenu = windowMenu
 
         NSApp.mainMenu = main
@@ -132,6 +133,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !ScheduleStore.shared.store.headlessWhenClosed
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        AILocalServerController.shared.stopOwnedServerOnQuit()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -186,6 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc private func openLimits() {
         MainWindowController.shared.showSection(.limits)
+        MainWindowController.shared.showWindow()
+    }
+
+    @objc private func openAI() {
+        MainWindowController.shared.showSection(.ai)
         MainWindowController.shared.showWindow()
     }
 

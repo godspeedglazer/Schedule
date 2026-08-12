@@ -84,16 +84,16 @@ enum InterventionLevel: String, Codable, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .gentle: "Corner card"
-        case .focus: "Center card"
+        case .focus: "Banner"
         case .takeover: "Full screen"
         }
     }
 
     var detail: String {
         switch self {
-        case .gentle: "Movable and remembered"
-        case .focus: "Centered with a soft dim"
-        case .takeover: "Full-screen pause"
+        case .gentle: "Movable · swipe to snooze · hold to complete"
+        case .focus: "Screen-edge banner with the same gestures"
+        case .takeover: "Full-screen conversation with explicit actions"
         }
     }
 }
@@ -319,6 +319,8 @@ struct SchedStore: Codable {
     var floatingTimerAlwaysOnTop: Bool
     var hourStyle: HourStyle
     var showAMPM: Bool
+    var aiSettings: SchedAISettings
+    var aiPacketPresets: [SchedAIPacketPreset]
 
     static let empty = SchedStore(
         alarms: [],
@@ -344,7 +346,9 @@ struct SchedStore: Codable {
         floatingTimerAutoShow: false,
         floatingTimerAlwaysOnTop: true,
         hourStyle: .system,
-        showAMPM: true
+        showAMPM: true,
+        aiSettings: .default,
+        aiPacketPresets: []
     )
 
     enum CodingKeys: String, CodingKey {
@@ -354,7 +358,7 @@ struct SchedStore: Codable {
         case menuBarShowIcon, menuBarShowDate, menuBarShowTime, menuBarShowSeconds
         case menuBarClockEnabled, menuBarTimerEnabled, menuBarTimerHideWhenIdle
         case floatingTimerAutoShow, floatingTimerAlwaysOnTop
-        case hourStyle, showAMPM
+        case hourStyle, showAMPM, aiSettings, aiPacketPresets
     }
 
     init(
@@ -381,7 +385,9 @@ struct SchedStore: Codable {
         floatingTimerAutoShow: Bool,
         floatingTimerAlwaysOnTop: Bool,
         hourStyle: HourStyle,
-        showAMPM: Bool
+        showAMPM: Bool,
+        aiSettings: SchedAISettings = .default,
+        aiPacketPresets: [SchedAIPacketPreset] = []
     ) {
         self.alarms = alarms
         self.appWatches = appWatches
@@ -407,6 +413,8 @@ struct SchedStore: Codable {
         self.floatingTimerAlwaysOnTop = floatingTimerAlwaysOnTop
         self.hourStyle = hourStyle
         self.showAMPM = showAMPM
+        self.aiSettings = aiSettings
+        self.aiPacketPresets = aiPacketPresets
     }
 
     init(from decoder: Decoder) throws {
@@ -435,5 +443,7 @@ struct SchedStore: Codable {
         floatingTimerAlwaysOnTop = try c.decodeIfPresent(Bool.self, forKey: .floatingTimerAlwaysOnTop) ?? true
         hourStyle = try c.decodeIfPresent(HourStyle.self, forKey: .hourStyle) ?? .system
         showAMPM = try c.decodeIfPresent(Bool.self, forKey: .showAMPM) ?? true
+        aiSettings = try c.decodeIfPresent(SchedAISettings.self, forKey: .aiSettings) ?? .default
+        aiPacketPresets = try c.decodeIfPresent([SchedAIPacketPreset].self, forKey: .aiPacketPresets) ?? []
     }
 }

@@ -16,10 +16,12 @@ final class AccessibilityMonitor {
         timer?.invalidate()
         timer = nil
         guard ScheduleStore.shared.store.idleMinutesBeforeNudge != nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
+        let monitorTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.evaluateIdle() }
         }
-        RunLoop.main.add(timer!, forMode: .common)
+        monitorTimer.tolerance = max(1, pollInterval * 0.1)
+        timer = monitorTimer
+        RunLoop.main.add(monitorTimer, forMode: .common)
     }
 
     func stop() {

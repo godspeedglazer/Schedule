@@ -17,7 +17,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = ""
+        window.title = "Sched"
         window.minSize = NSSize(width: 720, height: 500)
         window.maxSize = NSSize(width: 960, height: 680)
         window.collectionBehavior.insert(.fullScreenNone)
@@ -30,6 +30,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.backgroundColor = SchedDesign.canvas
+        SchedDesign.applyWindowAppearance(window)
         super.init(window: window)
         window.delegate = self
         buildChrome()
@@ -103,6 +104,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         case .calendar: vc = CalendarPanelController()
         case .timer: vc = TimerPanelController()
         case .limits: vc = SettingsPanelController(mode: .limits)
+        case .ai: vc = AISettingsPanelController()
         case .settings: vc = SettingsPanelController(mode: .preferences)
         }
         panels[section] = vc
@@ -123,7 +125,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
         let railGlass = SchedGlassSurface(
             cornerRadius: SchedDesign.railCorner,
-            tint: NSColor.white.withAlphaComponent(0.14)
+            tint: NSColor.white.withAlphaComponent(0.14),
+            stableWhenInactive: false
         )
         let railStack = NSStackView()
         railStack.orientation = .vertical

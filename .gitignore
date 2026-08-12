@@ -2,12 +2,17 @@
 .build/
 .swiftpm/
 dist/
+Build/
 *.app/
 DerivedData/
 
 # Agent / personal notes (not for public)
 AGENTS.md
-docs/
+docs/*
+!docs/design-references/
+docs/design-references/*
+!docs/design-references/recovered-thread-019ff41a/
+!docs/design-references/recovered-thread-019ff41a/**
 .codex/
 
 # Local-only / broken / path-identifying scripts

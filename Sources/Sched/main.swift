@@ -6,7 +6,12 @@ import AppKit
 // thread waiting for that Task.
 MainActor.assumeIsolated {
     let app = NSApplication.shared
-    let delegate = AppDelegate()
+    let delegate: NSObject & NSApplicationDelegate
+    if Bundle.main.bundleIdentifier == "com.erichspringer.sched.notification-lab" {
+        delegate = NotificationLabDelegate()
+    } else {
+        delegate = AppDelegate()
+    }
     app.delegate = delegate
     app.setActivationPolicy(.regular)
     _ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)

@@ -40,22 +40,43 @@ final class AppWatchMonitor {
     private var fired: Set<UUID> = []
     private var statuses: [UUID: AppWatchRuntimeStatus] = [:]
     private var observers: [UUID: () -> Void] = [:]
+    private var storeObserver: UUID?
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var isStarted = false
 
     private init() {}
 
-    func start(pollInterval: TimeInterval = 2) {
-        timer?.invalidate()
-        let monitorTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.evaluate() }
+    func start() {
+        guard !isStarted else {
+            evaluate()
+            return
         }
-        timer = monitorTimer
-        RunLoop.main.add(monitorTimer, forMode: .common)
+        isStarted = true
+        storeObserver = ScheduleStore.shared.observeChanges { [weak self] in
+            self?.evaluate()
+        }
+
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.evaluate() }
+            }
+            workspaceObservers.append(token)
+        }
         evaluate()
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        if let storeObserver {
+            ScheduleStore.shared.removeObserver(storeObserver)
+            self.storeObserver = nil
+        }
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.forEach(center.removeObserver)
+        workspaceObservers.removeAll()
+        isStarted = false
         firstSeen.removeAll()
         fired.removeAll()
         statuses.removeAll()
@@ -82,6 +103,10 @@ final class AppWatchMonitor {
     }
 
     private func evaluate() {
+        timer?.invalidate()
+        timer = nil
+
+        let now = Date()
         let selfBundle = Bundle.main.bundleIdentifier
         let running = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier != selfBundle }
         let enabledWatches = ScheduleStore.shared.store.appWatches.filter(\.enabled)
@@ -91,6 +116,7 @@ final class AppWatchMonitor {
         fired = fired.intersection(enabledIDs)
 
         var nextStatuses: [UUID: AppWatchRuntimeStatus] = [:]
+        var nextDeadline: Date?
 
         for watch in ScheduleStore.shared.store.appWatches {
             guard watch.enabled else {
@@ -123,9 +149,9 @@ final class AppWatchMonitor {
                 continue
             }
 
-            let started = firstSeen[watch.id] ?? app.launchDate ?? .now
+            let started = firstSeen[watch.id] ?? app.launchDate ?? now
             firstSeen[watch.id] = started
-            let elapsed = max(0, Int(Date().timeIntervalSince(started)))
+            let elapsed = max(0, Int(now.timeIntervalSince(started)))
             let reached = elapsed >= watch.maxMinutes * 60
 
             if reached, fired.insert(watch.id).inserted {
@@ -140,10 +166,31 @@ final class AppWatchMonitor {
                 limitSeconds: watch.maxMinutes * 60,
                 didFire: fired.contains(watch.id)
             )
+
+            if !reached {
+                let deadline = started.addingTimeInterval(TimeInterval(watch.maxMinutes * 60))
+                if nextDeadline.map({ deadline < $0 }) ?? true {
+                    nextDeadline = deadline
+                }
+            }
         }
 
-        statuses = nextStatuses
-        notifyObservers()
+        if statuses != nextStatuses {
+            statuses = nextStatuses
+            notifyObservers()
+        }
+
+        // App launches/terminations and settings changes drive reevaluation.
+        // While a watched app is open, a single one-shot timer fires at the
+        // earliest limit instead of polling every two seconds forever.
+        if let nextDeadline {
+            let thresholdTimer = Timer(fire: nextDeadline.addingTimeInterval(0.05), interval: 0, repeats: false) { [weak self] _ in
+                Task { @MainActor in self?.evaluate() }
+            }
+            thresholdTimer.tolerance = 0.5
+            timer = thresholdTimer
+            RunLoop.main.add(thresholdTimer, forMode: .common)
+        }
     }
 
     private func notifyObservers() {

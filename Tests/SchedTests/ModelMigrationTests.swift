@@ -34,6 +34,7 @@ final class ModelMigrationTests: XCTestCase {
         XCTAssertTrue(store.floatingTimerAlwaysOnTop)
         XCTAssertEqual(store.hourStyle, .system)
         XCTAssertTrue(store.showAMPM)
+        XCTAssertEqual(store.aiSettings, .default)
     }
 
     func testLegacyAlarmGetsNonTimerDefaults() throws {
@@ -125,10 +126,71 @@ final class ModelMigrationTests: XCTestCase {
         XCTAssertFalse(SchedTextLimits.clean("  Useful title  ", limit: SchedTextLimits.title).hasPrefix(" "))
     }
 
+    func testAIProviderDetectionUnderstandsKeysAndLocalEndpoints() {
+        XCTAssertEqual(AIProviderDetector.provider(forKeyPrefix: "sk-ant-example"), .anthropic)
+        XCTAssertEqual(AIProviderDetector.provider(forKeyPrefix: "gsk_example"), .groq)
+        XCTAssertEqual(AIProviderDetector.provider(forEndpoint: "http://localhost:11434"), .ollama)
+        XCTAssertEqual(AIProviderDetector.provider(forEndpoint: "http://127.0.0.1:1234/v1"), .lmStudio)
+        XCTAssertEqual(
+            AIProviderDetector.detect(environment: ["GEMINI_API_KEY": "secret"])?.provider,
+            .gemini
+        )
+    }
+
+    func testAIPacketIsPortableAndDoesNotContainSecrets() throws {
+        var store = SchedStore.empty
+        store.aiSettings = SchedAISettings(provider: .openAI, endpoint: "https://api.openai.com", model: "test", stopOwnedServerOnQuit: true)
+        store.alarms = [SchedAlarm(title: "Review", note: "Launch notes", fireAt: Date(timeIntervalSince1970: 1_800_000_000))]
+        let files = try AIPacketBuilder.files(store: store, request: "Organize tomorrow", now: Date(timeIntervalSince1970: 1_800_000_100))
+        XCTAssertEqual(Set(files.keys), Set(["README.md", "request.md", "sched-context.json"]))
+        let joined = files.values.compactMap { String(data: $0, encoding: .utf8) }.joined()
+        XCTAssertTrue(joined.contains("Review"))
+        XCTAssertTrue(joined.contains("Organize tomorrow"))
+        XCTAssertFalse(joined.lowercased().contains("api_key"))
+        XCTAssertFalse(joined.contains("secret"))
+    }
+
+    func testAIPacketCanLimitContextToTimersAndAppLimits() throws {
+        var store = SchedStore.empty
+        store.alarms = [
+            SchedAlarm(title: "Reminder", fireAt: .now),
+            SchedAlarm(title: "Focus", fireAt: .now, isTimer: true, pausedRemainingSeconds: 300),
+        ]
+        store.appWatches = [SchedAppWatch(appName: "Editor", maxMinutes: 45)]
+        let files = try AIPacketBuilder.files(
+            store: store,
+            request: "Review focus",
+            options: .init(includeReminders: false, includeTimers: true, includeAppLimits: true, includeWorkspace: false)
+        )
+        let context = try XCTUnwrap(files["sched-context.json"])
+        let decoded = try JSONDecoder.schedPacket.decode(SchedAIPacketContext.self, from: context)
+        XCTAssertTrue(decoded.reminders.isEmpty)
+        XCTAssertEqual(decoded.timers.map(\.title), ["Focus"])
+        XCTAssertEqual(decoded.appLimits.map(\.appName), ["Editor"])
+        XCTAssertNil(decoded.workspace)
+    }
+
+    func testAIPacketPresetRoundTripsWithWorkspaceSelection() throws {
+        var store = SchedStore.empty
+        let preset = SchedAIPacketPreset(name: "Release packet", request: "What should I finish?", includeWorkspace: true)
+        store.aiPacketPresets = [preset]
+        let encoded = try JSONEncoder().encode(store)
+        let decoded = try JSONDecoder().decode(SchedStore.self, from: encoded)
+        XCTAssertEqual(decoded.aiPacketPresets, [preset])
+    }
+
     @MainActor
     func testCalendarPanelBuildsWithoutConstraintException() {
         let controller = CalendarPanelController()
         XCTAssertFalse(controller.view.subviews.isEmpty)
+    }
+}
+
+private extension JSONDecoder {
+    static var schedPacket: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
     }
 }
 

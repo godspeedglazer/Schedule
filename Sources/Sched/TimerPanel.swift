@@ -27,6 +27,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
     private var activeTimerID: UUID?
     private var storeObserver: UUID?
     private var clockTimer: Timer?
+    private var isPanelVisible = false
 
     override func loadView() {
         view = NSView()
@@ -61,8 +62,9 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         minutesLabel.isSelectable = true
         minutesLabel.isBezeled = true
         minutesLabel.isBordered = true
+        minutesLabel.bezelStyle = .roundedBezel
         minutesLabel.drawsBackground = true
-        minutesLabel.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.65)
+        minutesLabel.backgroundColor = NSColor.white.withAlphaComponent(0.58)
         minutesStepper.minValue = 1
         minutesStepper.maxValue = 480
         minutesStepper.integerValue = 25
@@ -101,7 +103,11 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         activeControls.orientation = .horizontal
         activeControls.alignment = .centerY
         activeControls.spacing = 8
-        let activeText = NSStackView(views: [activeTitle, activeCountdown, activeMeta])
+        let activeTiming = NSStackView(views: [activeCountdown, activeMeta])
+        activeTiming.orientation = .horizontal
+        activeTiming.alignment = .lastBaseline
+        activeTiming.spacing = 10
+        let activeText = NSStackView(views: [activeTitle, activeTiming])
         activeText.orientation = .vertical
         activeText.alignment = .leading
         activeText.spacing = 2
@@ -167,7 +173,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
             activeGlass.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 14),
             activeGlass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             activeGlass.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            activeGlass.heightAnchor.constraint(equalToConstant: 82),
+            activeGlass.heightAnchor.constraint(equalToConstant: 92),
             durationGlass.topAnchor.constraint(equalTo: activeGlass.bottomAnchor, constant: 14),
             durationGlass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             durationGlass.widthAnchor.constraint(equalToConstant: 240),
@@ -195,24 +201,52 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
             actionRow.widthAnchor.constraint(equalTo: detailsStack.widthAnchor),
         ])
         reloadActiveTimer()
-        startLiveUpdates()
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        isPanelVisible = true
+        startLiveUpdates()
         reloadActionAppsMenu()
         reloadActiveTimer()
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        isPanelVisible = false
+        stopLiveUpdates()
     }
 
     private func startLiveUpdates() {
         if storeObserver == nil {
             storeObserver = ScheduleStore.shared.observeChanges { [weak self] in self?.reloadActiveTimer() }
         }
+        updateClockTimer()
+    }
+
+    private func stopLiveUpdates() {
         clockTimer?.invalidate()
-        clockTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        clockTimer = nil
+        if let storeObserver {
+            ScheduleStore.shared.removeObserver(storeObserver)
+            self.storeObserver = nil
+        }
+    }
+
+    private func updateClockTimer() {
+        let shouldTick = isPanelVisible && TimerService.shared.snapshot()?.isPaused == false
+        guard shouldTick else {
+            clockTimer?.invalidate()
+            clockTimer = nil
+            return
+        }
+        guard clockTimer == nil else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.updateActiveCountdown() }
         }
-        if let clockTimer { RunLoop.main.add(clockTimer, forMode: .common) }
+        timer.tolerance = 0.1
+        clockTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     @objc private func reloadActionAppsMenu() {
@@ -314,6 +348,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
             activeCountdown.stringValue = "Set one below"
             activeMeta.stringValue = ""
             activeControls.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            updateClockTimer()
             return
         }
         activeTimerID = snapshot.id
@@ -327,6 +362,7 @@ final class TimerPanelController: NSViewController, NSTextFieldDelegate {
         let cancel = SchedDangerButton("Cancel", action: #selector(cancelTimer), target: self)
         [pause, add, floating, cancel].forEach { activeControls.addArrangedSubview($0) }
         updateActiveCountdown()
+        updateClockTimer()
     }
 
     private func updateActiveCountdown() {

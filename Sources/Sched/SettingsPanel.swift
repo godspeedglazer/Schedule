@@ -48,6 +48,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
     private let limitsList = NSStackView()
     private var limitStatusLabels: [UUID: NSTextField] = [:]
     private var watchObserver: UUID?
+    private var runtimeRefreshTimer: Timer?
 
     init(mode: Mode = .preferences) {
         self.mode = mode
@@ -147,6 +148,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
                 }
             }
             AppWatchMonitor.shared.evaluateNow()
+            startRuntimeRefreshTimer()
         }
         refreshNotificationHealth()
         view.layoutSubtreeIfNeeded()
@@ -155,6 +157,26 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             self.scroll.contentView.scroll(to: .zero)
             self.scroll.reflectScrolledClipView(self.scroll.contentView)
         }
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        runtimeRefreshTimer?.invalidate()
+        runtimeRefreshTimer = nil
+        if let watchObserver {
+            AppWatchMonitor.shared.removeObserver(watchObserver)
+            self.watchObserver = nil
+        }
+    }
+
+    private func startRuntimeRefreshTimer() {
+        runtimeRefreshTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            Task { @MainActor in AppWatchMonitor.shared.evaluateNow() }
+        }
+        timer.tolerance = 0.2
+        runtimeRefreshTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func configureControls() {
@@ -229,7 +251,7 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
             stack.addArrangedSubview(check)
         }
         dockPresencePopup.widthAnchor.constraint(equalToConstant: 220).isActive = true
-        let testNotification = SchedGhostButton("Test sound + notification", action: #selector(testNotification), target: self)
+        let testNotification = SchedGhostButton("Test reminder", action: #selector(testNotification), target: self)
         notificationStatus.font = SchedDesign.caption(11)
         SchedDesign.label(notificationStatus, color: SchedDesign.inkMuted)
         stack.addArrangedSubview(testNotification)
@@ -834,6 +856,8 @@ final class SettingsPanelController: NSViewController, NSTextFieldDelegate {
         field.formatter = formatter
         field.alignment = .right
         field.font = SchedDesign.mono(14)
+        field.textColor = SchedDesign.ink
+        field.appearance = SchedDesign.windowAppearance
         field.focusRingType = .none
         field.translatesAutoresizingMaskIntoConstraints = false
         field.widthAnchor.constraint(equalToConstant: 58).isActive = true

@@ -10,6 +10,7 @@ final class CalendarPanelController: NSViewController {
     private var storeObserver: UUID?
     private var calendarObserver: UUID?
     private var activeObserver: NSObjectProtocol?
+    private var detailPopover: NSPopover?
 
     override func loadView() {
         view = NSView()
@@ -24,7 +25,10 @@ final class CalendarPanelController: NSViewController {
         SchedDesign.label(subtitle, color: SchedDesign.inkMuted)
 
         let calendarGlass = SchedGlassSurface(cornerRadius: 20, tint: NSColor.white.withAlphaComponent(0.14))
-        monthCalendar.onSelection = { [weak self] _ in self?.reloadAgenda() }
+        monthCalendar.onSelection = { [weak self] _ in
+            self?.detailPopover?.performClose(nil)
+            self?.reloadAgenda()
+        }
         monthCalendar.translatesAutoresizingMaskIntoConstraints = false
         calendarGlass.innerContentView.addSubview(monthCalendar)
         NSLayoutConstraint.activate([
@@ -273,7 +277,7 @@ final class CalendarPanelController: NSViewController {
         return calendar.date(from: components)
     }
 
-    private struct AgendaEntry {
+    fileprivate struct AgendaEntry {
         let sortDate: Date
         let allDay: Bool
         let time: String
@@ -291,7 +295,12 @@ final class CalendarPanelController: NSViewController {
     }
 
     private func agendaRow(_ entry: AgendaEntry) -> NSView {
-        let row = SchedGlassSurface(cornerRadius: 12, tint: entry.color.withAlphaComponent(0.10), interactive: false)
+        let row = SchedAgendaEntryView(entry: entry, onOpen: { [weak self] sender in
+            self?.showDetails(for: entry, relativeTo: sender)
+        })
+        row.wantsLayer = true
+        row.layer?.cornerRadius = 12
+        row.layer?.backgroundColor = entry.color.withAlphaComponent(0.10).cgColor
         row.translatesAutoresizingMaskIntoConstraints = false
         row.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
 
@@ -326,12 +335,12 @@ final class CalendarPanelController: NSViewController {
         content.alignment = .centerY
         content.spacing = 10
         content.translatesAutoresizingMaskIntoConstraints = false
-        row.innerContentView.addSubview(content)
+        row.addSubview(content)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: row.innerContentView.leadingAnchor, constant: 12),
-            content.trailingAnchor.constraint(equalTo: row.innerContentView.trailingAnchor, constant: -12),
-            content.topAnchor.constraint(equalTo: row.innerContentView.topAnchor, constant: 10),
-            content.bottomAnchor.constraint(equalTo: row.innerContentView.bottomAnchor, constant: -10),
+            content.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 12),
+            content.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -12),
+            content.topAnchor.constraint(equalTo: row.topAnchor, constant: 10),
+            content.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -10),
             icon.widthAnchor.constraint(equalToConstant: 16),
             timeLabel.widthAnchor.constraint(equalToConstant: 62),
         ])
@@ -351,6 +360,33 @@ final class CalendarPanelController: NSViewController {
             row.menu = menu
         }
         return row
+    }
+
+    private func showDetails(for entry: AgendaEntry, relativeTo source: NSView) {
+        detailPopover?.performClose(nil)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        popover.contentSize = NSSize(width: 330, height: entry.detail.isEmpty ? 154 : 190)
+        popover.contentViewController = CalendarAgendaDetailController(
+            entry: entry,
+            onEdit: { [weak self] in self?.edit(entry) }
+        )
+        popover.show(relativeTo: source.bounds, of: source, preferredEdge: .maxX)
+        detailPopover = popover
+    }
+
+    private func edit(_ entry: AgendaEntry) {
+        detailPopover?.performClose(nil)
+        if let id = entry.alarmID {
+            MainWindowController.shared.showAlarm(id)
+        } else if let identifier = entry.eventIdentifier,
+                  let event = CalendarService.shared.event(identifier: identifier) {
+            guard let window = view.window else { return }
+            CalendarEventEditorController.presentEdit(from: window, event: event) { [weak self] _ in
+                self?.reloadAgenda()
+            }
+        }
     }
 
     private func agendaAction(_ title: String, symbol: String, represented: String, action: Selector) -> NSMenuItem {
@@ -383,6 +419,10 @@ final class CalendarPanelController: NSViewController {
     @objc private func createReminderFromEvent(_ sender: NSMenuItem) {
         guard let identifier = sender.representedObject as? String,
               let event = CalendarService.shared.event(identifier: identifier) else { return }
+        createReminder(from: event)
+    }
+
+    private func createReminder(from event: EKEvent) {
         let fireAt: Date
         if event.isAllDay {
             fireAt = Calendar.autoupdatingCurrent.date(bySettingHour: 9, minute: 0, second: 0, of: event.startDate) ?? event.startDate
@@ -397,7 +437,7 @@ final class CalendarPanelController: NSViewController {
             note: SchedTextLimits.clean(noteParts.joined(separator: "\n"), limit: SchedTextLimits.note),
             fireAt: fireAt,
             level: ScheduleStore.shared.store.defaultLevel,
-            calendarEventIdentifier: identifier
+            calendarEventIdentifier: event.eventIdentifier
         )
         ScheduleStore.shared.upsert(alarm)
         MainWindowController.shared.showAlarm(alarm.id)
@@ -438,6 +478,100 @@ final class CalendarPanelController: NSViewController {
         SchedDesign.label(label, color: SchedDesign.inkMuted)
         return label
     }
+}
+
+@MainActor
+private final class SchedAgendaEntryView: NSView {
+    let entry: CalendarPanelController.AgendaEntry
+    private let onOpen: (NSView) -> Void
+
+    init(entry: CalendarPanelController.AgendaEntry, onOpen: @escaping (NSView) -> Void) {
+        self.entry = entry
+        self.onOpen = onOpen
+        super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("\(entry.title), \(entry.time)")
+        setAccessibilityHelp("Open event details")
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 1 { onOpen(self) }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 49 { onOpen(self) }
+        else { super.keyDown(with: event) }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onOpen(self)
+        return true
+    }
+}
+
+@MainActor
+private final class CalendarAgendaDetailController: NSViewController {
+    private let entry: CalendarPanelController.AgendaEntry
+    private let onEdit: () -> Void
+
+    init(entry: CalendarPanelController.AgendaEntry, onEdit: @escaping () -> Void) {
+        self.entry = entry
+        self.onEdit = onEdit
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+    override func loadView() {
+        view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = SchedDesign.canvas.cgColor
+
+        let stripe = NSView()
+        stripe.wantsLayer = true
+        stripe.layer?.cornerRadius = 2
+        stripe.layer?.backgroundColor = entry.color.cgColor
+
+        let title = NSTextField(wrappingLabelWithString: entry.title)
+        title.font = SchedDesign.title(17)
+        title.maximumNumberOfLines = 2
+        SchedDesign.label(title)
+        let time = NSTextField(labelWithString: entry.time)
+        time.font = SchedDesign.body(13)
+        SchedDesign.label(time, color: SchedDesign.inkMuted)
+        let detail = NSTextField(wrappingLabelWithString: entry.detail)
+        detail.font = SchedDesign.body(13)
+        detail.maximumNumberOfLines = 3
+        SchedDesign.label(detail, color: SchedDesign.inkMuted)
+
+        let edit = SchedGhostButton(entry.alarmID == nil ? "Edit event" : "Edit reminder", action: #selector(edit), target: self)
+        let body = NSStackView(views: [title, time, detail, edit])
+        body.orientation = .vertical
+        body.alignment = .leading
+        body.spacing = 8
+        body.translatesAutoresizingMaskIntoConstraints = false
+
+        [stripe, body].forEach { view.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
+        NSLayoutConstraint.activate([
+            stripe.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            stripe.topAnchor.constraint(equalTo: view.topAnchor, constant: 18),
+            stripe.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -18),
+            stripe.widthAnchor.constraint(equalToConstant: 4),
+            body.leadingAnchor.constraint(equalTo: stripe.trailingAnchor, constant: 13),
+            body.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
+            body.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+            body.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -16),
+            title.widthAnchor.constraint(equalTo: body.widthAnchor),
+            detail.widthAnchor.constraint(equalTo: body.widthAnchor),
+        ])
+    }
+
+    @objc private func edit() { onEdit() }
 }
 
 /// A native AppKit month grid sized for Sched's calendar panel. `NSDatePicker`'s

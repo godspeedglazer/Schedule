@@ -115,19 +115,46 @@ final class CalendarService {
     func createEvent(_ draft: CalendarEventDraft) throws -> EKEvent {
         guard hasAccess else { throw CalendarServiceError.accessRequired }
 
-        let calendar: EKCalendar?
-        if let identifier = draft.calendarIdentifier,
-           let selected = store.calendar(withIdentifier: identifier),
-           selected.allowsContentModifications {
-            calendar = selected
-        } else {
-            calendar = store.defaultCalendarForNewEvents
-        }
+        let calendar = writableCalendar(for: draft)
         guard let calendar, calendar.allowsContentModifications else {
             throw CalendarServiceError.noWritableCalendar
         }
 
         let event = EKEvent(eventStore: store)
+        apply(draft, to: event, calendar: calendar)
+        try store.save(event, span: .thisEvent, commit: true)
+        notifyObservers()
+        return event
+    }
+
+    /// Calendar rows are editable in place: opening a row never creates a
+    /// second event or turns it into an unrelated Sched reminder.
+    @discardableResult
+    func updateEvent(identifier: String, draft: CalendarEventDraft) throws -> EKEvent {
+        guard hasAccess else { throw CalendarServiceError.accessRequired }
+        guard let event = store.event(withIdentifier: identifier) else {
+            throw CalendarServiceError.eventUnavailable
+        }
+        let calendar = writableCalendar(for: draft)
+        guard let calendar, calendar.allowsContentModifications else {
+            throw CalendarServiceError.noWritableCalendar
+        }
+        apply(draft, to: event, calendar: calendar)
+        try store.save(event, span: .thisEvent, commit: true)
+        notifyObservers()
+        return event
+    }
+
+    private func writableCalendar(for draft: CalendarEventDraft) -> EKCalendar? {
+        if let identifier = draft.calendarIdentifier,
+           let selected = store.calendar(withIdentifier: identifier),
+           selected.allowsContentModifications {
+            return selected
+        }
+        return store.defaultCalendarForNewEvents
+    }
+
+    private func apply(_ draft: CalendarEventDraft, to event: EKEvent, calendar: EKCalendar) {
         event.title = SchedTextLimits.clean(draft.title, limit: SchedTextLimits.title)
         if draft.isAllDay {
             let systemCalendar = Calendar.autoupdatingCurrent
@@ -143,9 +170,6 @@ final class CalendarService {
         event.calendar = calendar
         event.location = draft.location.trimmingCharacters(in: .whitespacesAndNewlines)
         event.notes = SchedTextLimits.clean(draft.notes, limit: SchedTextLimits.note)
-        try store.save(event, span: .thisEvent, commit: true)
-        notifyObservers()
-        return event
     }
 
     private func notifyObservers() {

@@ -17,6 +17,9 @@ enum URLHandler {
             case "limits":
                 MainWindowController.shared.showSection(.limits)
                 MainWindowController.shared.showWindow()
+            case "ai":
+                MainWindowController.shared.showSection(.ai)
+                MainWindowController.shared.showWindow()
             case "preferences", "settings":
                 MainWindowController.shared.showSection(.settings)
                 MainWindowController.shared.showWindow()

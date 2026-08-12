@@ -93,18 +93,14 @@ final class NotificationService {
     }
 
     func deliverTest() {
-        AlarmAudioService.shared.preview(ScheduleStore.shared.store.defaultSound)
-        guard ScheduleStore.shared.store.systemNotificationsEnabled else { return }
         requestAuthorizationIfNeeded()
         let test = SchedAlarm(
             title: "Sched test",
-            note: "Sound, Snooze, and Done are ready.",
+            note: "Sound, Snooze, Done, and this message are ready.",
             fireAt: .now,
-            level: .gentle
+            level: ScheduleStore.shared.store.defaultLevel
         )
-        let testContent = content(for: test)
-        testContent.sound = nil // local preview above prevents a confusing double sound
-        center.add(UNNotificationRequest(identifier: identifierPrefix + "test", content: testContent, trigger: nil))
+        Scheduler.shared.fireNow(test)
     }
 
     func handle(
@@ -141,13 +137,18 @@ final class NotificationService {
                 InterventionManager.shared.dismissAll()
             }
 
-        case doneActionIdentifier, UNNotificationDismissActionIdentifier:
+        case doneActionIdentifier:
             if let id = alarmID.flatMap(UUID.init(uuidString:)) {
                 AlarmAudioService.shared.stop(alarmID: id)
                 InterventionManager.shared.dismiss(alarmID: id)
             } else {
                 InterventionManager.shared.dismissAll()
             }
+
+        case UNNotificationDismissActionIdentifier:
+            // Dismissing the system banner is not the same as completing the
+            // reminder. Leave the interactive Sched intervention available.
+            break
 
         case UNNotificationDefaultActionIdentifier:
             if let id = alarmID.flatMap(UUID.init(uuidString:)) {

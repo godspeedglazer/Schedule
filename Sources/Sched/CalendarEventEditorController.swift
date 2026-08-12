@@ -12,6 +12,7 @@ final class CalendarEventEditorController: NSViewController {
         var location: String
         var notes: String
 
+        @MainActor
         static func newEvent(on date: Date) -> Seed {
             let calendar = Calendar.autoupdatingCurrent
             let now = Date()
@@ -33,6 +34,7 @@ final class CalendarEventEditorController: NSViewController {
             )
         }
 
+        @MainActor
         static func reminder(_ alarm: SchedAlarm) -> Seed {
             Seed(
                 title: alarm.title,
@@ -44,9 +46,23 @@ final class CalendarEventEditorController: NSViewController {
                 notes: alarm.note
             )
         }
+
+        @MainActor
+        static func event(_ event: EKEvent) -> Seed {
+            Seed(
+                title: event.title ?? "",
+                startDate: event.startDate,
+                endDate: event.endDate,
+                isAllDay: event.isAllDay,
+                calendarIdentifier: event.calendar.calendarIdentifier,
+                location: event.location ?? "",
+                notes: event.notes ?? ""
+            )
+        }
     }
 
     private let seed: Seed
+    private let eventIdentifier: String?
     private let onSave: (EKEvent) -> Void
     private weak var sheetWindow: NSWindow?
     private weak var parentWindow: NSWindow?
@@ -59,8 +75,9 @@ final class CalendarEventEditorController: NSViewController {
     private let locationField = NSTextField()
     private let notesField = NSTextField()
 
-    private init(seed: Seed, onSave: @escaping (EKEvent) -> Void) {
+    private init(seed: Seed, eventIdentifier: String? = nil, onSave: @escaping (EKEvent) -> Void) {
         self.seed = seed
+        self.eventIdentifier = eventIdentifier
         self.onSave = onSave
         super.init(nibName: nil, bundle: nil)
     }
@@ -68,6 +85,19 @@ final class CalendarEventEditorController: NSViewController {
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
     static func present(from parent: NSWindow, seed: Seed, onSave: @escaping (EKEvent) -> Void = { _ in }) {
+        present(from: parent, seed: seed, eventIdentifier: nil, onSave: onSave)
+    }
+
+    static func presentEdit(from parent: NSWindow, event: EKEvent, onSave: @escaping (EKEvent) -> Void = { _ in }) {
+        present(from: parent, seed: .event(event), eventIdentifier: event.eventIdentifier, onSave: onSave)
+    }
+
+    private static func present(
+        from parent: NSWindow,
+        seed: Seed,
+        eventIdentifier: String?,
+        onSave: @escaping (EKEvent) -> Void
+    ) {
         Task { @MainActor in
             if !CalendarService.shared.hasAccess {
                 let granted = await CalendarService.shared.requestAccess()
@@ -81,9 +111,9 @@ final class CalendarEventEditorController: NSViewController {
                 }
             }
 
-            let controller = CalendarEventEditorController(seed: seed, onSave: onSave)
+            let controller = CalendarEventEditorController(seed: seed, eventIdentifier: eventIdentifier, onSave: onSave)
             let sheet = NSWindow(contentViewController: controller)
-            sheet.title = "New Calendar Event"
+            sheet.title = eventIdentifier == nil ? "New Calendar Event" : "Edit Calendar Event"
             sheet.styleMask = [.titled, .closable]
             sheet.setContentSize(NSSize(width: 460, height: 420))
             controller.sheetWindow = sheet
@@ -97,7 +127,7 @@ final class CalendarEventEditorController: NSViewController {
         view.wantsLayer = true
         view.layer?.backgroundColor = SchedDesign.canvas.cgColor
 
-        let heading = NSTextField(labelWithString: "New event")
+        let heading = NSTextField(labelWithString: eventIdentifier == nil ? "New event" : "Edit event")
         heading.font = SchedDesign.display(24)
         SchedDesign.label(heading)
         let help = NSTextField(labelWithString: "Add directly to your Mac calendar.")
@@ -142,7 +172,7 @@ final class CalendarEventEditorController: NSViewController {
         fields.addArrangedSubview(allDayCheck)
 
         let cancel = SchedGhostButton("Cancel", action: #selector(cancel), target: self)
-        let add = SchedPrimaryButton("Add Event", action: #selector(save), target: self)
+        let add = SchedPrimaryButton(eventIdentifier == nil ? "Add Event" : "Save Changes", action: #selector(save), target: self)
         let buttonSpacer = NSView()
         buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let buttons = NSStackView(views: [buttonSpacer, cancel, add])
@@ -246,7 +276,12 @@ final class CalendarEventEditorController: NSViewController {
         )
 
         do {
-            let event = try CalendarService.shared.createEvent(draft)
+            let event: EKEvent
+            if let eventIdentifier {
+                event = try CalendarService.shared.updateEvent(identifier: eventIdentifier, draft: draft)
+            } else {
+                event = try CalendarService.shared.createEvent(draft)
+            }
             onSave(event)
             cancel()
         } catch {

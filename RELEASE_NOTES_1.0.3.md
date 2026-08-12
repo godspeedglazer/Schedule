@@ -2,6 +2,22 @@
 
 Sched 1.0.3 is a compactness, calendar interoperability, menu-bar, and long-running lifecycle release.
 
+## macOS 27 stabilization
+
+- Repairs the clean Swift 6 build and removes the temporary Swift 5 language-mode fallback.
+- Keeps the warm light canvas legible when macOS itself is in Dark Mode.
+- Uses native interactive glass where supported while preserving a stable fallback on older systems.
+- Makes custom navigation and reminder cards keyboard-operable and visible to VoiceOver.
+- Rebuilds interventions as three deliberately different message formats: movable corner message, edge banner, and full-screen conversation.
+- Removes corner/banner Snooze and Done controls in favor of an outward swipe to snooze and press-and-hold to complete, with keyboard, VoiceOver, and context-menu equivalents.
+- Makes alert surfaces opaque while keeping the utility window's native glass treatment.
+- Adds a fixed-depth bottom fade to the Plan list so compact and wide windows end consistently instead of cutting a card.
+- Adds an optional AI convenience page for provider/key/endpoint detection, on-demand Ollama or LM Studio controls, and secret-free packet export.
+- Treats dismissing a macOS banner separately from completing the underlying reminder.
+- Replaces permanent app-limit polling with workspace events and one threshold timer.
+- Stops display timers when their panel, utility, or paused timer no longer needs live updates.
+- Makes icon packaging deterministic in CI and prevents development builds from terminating installed copies.
+
 ## Compact utility window
 
 - Restores a deliberately smaller default window (820×560 pt) with a 720×500 pt minimum.

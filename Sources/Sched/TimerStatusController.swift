@@ -82,6 +82,7 @@ final class TimerStatusController: NSObject, NSMenuDelegate {
         let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        timer.tolerance = 0.1
         refreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }

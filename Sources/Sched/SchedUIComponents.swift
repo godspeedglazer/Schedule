@@ -49,6 +49,68 @@ final class SchedFlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+struct SchedBottomFadeMetrics {
+    static let depth: CGFloat = 52
+
+    static func locations(viewportHeight: CGFloat, depth: CGFloat = depth) -> [NSNumber] {
+        guard viewportHeight > 0 else { return [0, 0, 1] }
+        let normalizedDepth = min(1, max(0, depth / viewportHeight))
+        return [0, NSNumber(value: Double(1 - normalizedDepth)), 1]
+    }
+}
+
+/// Keeps the visual depth of the list edge constant as the window changes size.
+/// The mask belongs to the clip view so the vertical scroller remains crisp.
+@MainActor
+final class SchedBottomFadeScrollView: NSScrollView {
+    private let fadeMask = CAGradientLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        fadeMask.colors = [
+            NSColor.black.cgColor,
+            NSColor.black.cgColor,
+            NSColor.clear.cgColor,
+        ]
+        fadeMask.startPoint = CGPoint(x: 0.5, y: 0)
+        fadeMask.endPoint = CGPoint(x: 0.5, y: 1)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        refreshBottomFade()
+    }
+
+    override func reflectScrolledClipView(_ cView: NSClipView) {
+        super.reflectScrolledClipView(cView)
+        refreshBottomFade()
+    }
+
+    func refreshBottomFade() {
+        guard let documentView else {
+            contentView.layer?.mask = nil
+            return
+        }
+        contentView.wantsLayer = true
+        let visible = documentVisibleRect
+        let documentBottom = documentView.bounds.maxY
+        let hasHiddenContentBelow = visible.maxY < documentBottom - 1
+        guard hasHiddenContentBelow, contentView.bounds.height > 1 else {
+            contentView.layer?.mask = nil
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fadeMask.frame = contentView.bounds
+        fadeMask.locations = SchedBottomFadeMetrics.locations(viewportHeight: contentView.bounds.height)
+        contentView.layer?.mask = fadeMask
+        CATransaction.commit()
+    }
+}
+
 @MainActor
 final class SchedGlassSurface: NSView {
     private let content = NSView()
@@ -61,12 +123,12 @@ final class SchedGlassSurface: NSView {
     var innerContentView: NSView { content }
 
     init(
-        cornerRadius: CGFloat = SchedDesign.cardRadius,
+        cornerRadius: CGFloat? = nil,
         tint: NSColor? = nil,
         interactive: Bool = false,
         stableWhenInactive: Bool = true
     ) {
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? SchedDesign.cardRadius
         self.interactive = interactive
         self.stableWhenInactive = stableWhenInactive
         currentTint = tint
@@ -114,7 +176,7 @@ final class SchedGlassSurface: NSView {
             glass.cornerRadius = cornerRadius
             if let tint { glass.tintColor = tint }
             if #available(macOS 27.0, *) {
-                glass.effectIsInteractive = false
+                glass.effectIsInteractive = interactive
             }
             glass.contentView = content
             addSubview(glass)
@@ -210,6 +272,7 @@ final class SchedPrimaryButton: NSButton {
         contentTintColor = .white
         controlSize = .large
         font = SchedDesign.caption(12)
+        appearance = SchedDesign.windowAppearance
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 36).isActive = true
     }
@@ -229,6 +292,7 @@ final class SchedGhostButton: NSButton {
         controlSize = .regular
         contentTintColor = SchedDesign.inkMuted
         font = SchedDesign.caption(12)
+        appearance = SchedDesign.windowAppearance
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 30).isActive = true
     }
@@ -249,6 +313,7 @@ final class SchedDangerButton: NSButton {
         contentTintColor = .white
         controlSize = .regular
         font = SchedDesign.caption(12)
+        appearance = SchedDesign.windowAppearance
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 30).isActive = true
     }
@@ -387,8 +452,8 @@ final class SchedAlarmCard: NSControl {
 
         noteLabel = NSTextField(wrappingLabelWithString: Self.noteText(alarm))
         noteLabel.font = SchedDesign.body(12)
-        noteLabel.maximumNumberOfLines = 0
-        noteLabel.lineBreakMode = .byWordWrapping
+        noteLabel.maximumNumberOfLines = 1
+        noteLabel.lineBreakMode = .byTruncatingTail
         noteLabel.toolTip = alarm.note.isEmpty ? nil : alarm.note
         noteLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         SchedDesign.label(noteLabel, color: SchedDesign.inkMuted)
@@ -396,8 +461,13 @@ final class SchedAlarmCard: NSControl {
         super.init(frame: .zero)
         isSelected = selected
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
+        heightAnchor.constraint(equalToConstant: 76).isActive = true
         wantsLayer = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityIdentifier(alarm.id.uuidString)
+        setAccessibilityHelp("Open reminder details. Press Return again or double-click to edit.")
+        updateAccessibility(alarm)
 
         addSubview(glass)
         NSLayoutConstraint.activate([
@@ -413,8 +483,7 @@ final class SchedAlarmCard: NSControl {
         stripe.layer?.cornerRadius = 2
         stripe.translatesAutoresizingMaskIntoConstraints = false
 
-        [stripe, timeLabel, periodLabel, titleLabel, noteLabel, actionIcon, levelPill].forEach { inner.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
-        configureActionIcon(alarm.action)
+        [stripe, timeLabel, periodLabel, titleLabel, noteLabel].forEach { inner.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
             stripe.leadingAnchor.constraint(equalTo: inner.leadingAnchor, constant: 12),
             stripe.topAnchor.constraint(equalTo: inner.topAnchor, constant: 14),
@@ -425,18 +494,12 @@ final class SchedAlarmCard: NSControl {
             periodLabel.leadingAnchor.constraint(equalTo: timeLabel.leadingAnchor),
             periodLabel.topAnchor.constraint(equalTo: timeLabel.bottomAnchor, constant: 0),
             titleLabel.leadingAnchor.constraint(equalTo: timeLabel.trailingAnchor, constant: 20),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionIcon.leadingAnchor, constant: -10),
+            titleLabel.trailingAnchor.constraint(equalTo: inner.trailingAnchor, constant: -16),
             titleLabel.topAnchor.constraint(equalTo: timeLabel.topAnchor, constant: 2),
             noteLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             noteLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
-            noteLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            noteLabel.trailingAnchor.constraint(equalTo: inner.trailingAnchor, constant: -16),
             noteLabel.bottomAnchor.constraint(lessThanOrEqualTo: inner.bottomAnchor, constant: -12),
-            actionIcon.trailingAnchor.constraint(equalTo: levelPill.leadingAnchor, constant: -10),
-            actionIcon.centerYAnchor.constraint(equalTo: inner.centerYAnchor),
-            actionIcon.widthAnchor.constraint(equalToConstant: 16),
-            actionIcon.heightAnchor.constraint(equalToConstant: 16),
-            levelPill.trailingAnchor.constraint(equalTo: inner.trailingAnchor, constant: -16),
-            levelPill.centerYAnchor.constraint(equalTo: inner.centerYAnchor),
         ])
         applySelection(selected)
     }
@@ -456,12 +519,12 @@ final class SchedAlarmCard: NSControl {
         titleLabel.needsLayout = true
         noteLabel.stringValue = Self.noteText(alarm)
         noteLabel.toolTip = alarm.note.isEmpty ? nil : alarm.note
-        configureActionIcon(alarm.action)
         currentLevel = alarm.level
         stripe.layer?.backgroundColor = SchedDesign.levelColor(alarm.level).cgColor
         levelPill.update(level: alarm.level)
         isSelected = selected
         applySelection(selected)
+        updateAccessibility(alarm)
     }
 
     private func applySelection(_ on: Bool) {
@@ -480,6 +543,22 @@ final class SchedAlarmCard: NSControl {
         } else {
             cardDelegate?.alarmCardSelected(alarmID)
         }
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 36, 49: // Return or Space
+            cardDelegate?.alarmCardSelected(alarmID)
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        cardDelegate?.alarmCardSelected(alarmID)
+        return true
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -548,6 +627,12 @@ final class SchedAlarmCard: NSControl {
         actionIcon.contentTintColor = action == .none ? SchedDesign.inkFaint : (configured ? SchedDesign.accent : .systemRed)
         actionIcon.toolTip = description
     }
+
+    private func updateAccessibility(_ alarm: SchedAlarm) {
+        let time = SchedTimeFormat.string(from: alarm.fireAt)
+        let cadence = alarm.repeatDaily ? "Daily" : SchedTimeFormat.dateContext(from: alarm.fireAt)
+        setAccessibilityLabel("\(alarm.title), \(cadence) at \(time), \(alarm.level.label)")
+    }
 }
 
 // MARK: - Hero
@@ -565,6 +650,8 @@ final class SchedHeroStrip: NSView {
         heightAnchor.constraint(equalToConstant: 72).isActive = true
 
         addSubview(glass)
+        glass.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.78).cgColor
+        glass.layer?.borderColor = SchedDesign.line.withAlphaComponent(0.95).cgColor
         NSLayoutConstraint.activate([
             glass.leadingAnchor.constraint(equalTo: leadingAnchor),
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -638,7 +725,11 @@ final class SchedNavItem: NSControl {
         icon.contentTintColor = SchedDesign.inkMuted
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         toolTip = section.rawValue
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
         setAccessibilityLabel(section.rawValue)
+        setAccessibilityIdentifier("navigation.\(section.rawValue.lowercased())")
+        setAccessibilityHelp("Show \(section.shortLabel)")
 
         addSubview(selection)
         addSubview(icon)
@@ -661,6 +752,22 @@ final class SchedNavItem: NSControl {
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 
     override func mouseDown(with event: NSEvent) { sendAction(action, to: target) }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 36, 49: // Return or Space
+            sendAction(action, to: target)
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        sendAction(action, to: target)
+        return true
+    }
 }
 
 enum SchedSection: String, CaseIterable {
@@ -668,6 +775,7 @@ enum SchedSection: String, CaseIterable {
     case calendar = "Calendar"
     case timer = "Timer"
     case limits = "Limits"
+    case ai = "AI"
     case settings = "Settings"
 
     var shortLabel: String {
@@ -676,6 +784,7 @@ enum SchedSection: String, CaseIterable {
         case .calendar: "Calendar"
         case .timer: "Timer"
         case .limits: "Limits"
+        case .ai: "AI"
         case .settings: "Prefs"
         }
     }
@@ -686,6 +795,7 @@ enum SchedSection: String, CaseIterable {
         case .calendar: "calendar"
         case .timer: "timer"
         case .limits: "hourglass.badge.plus"
+        case .ai: "sparkles.rectangle.stack"
         case .settings: "switch.2"
         }
     }
@@ -705,7 +815,7 @@ func schedFieldLabel(_ text: String) -> NSTextField {
 
 @MainActor
 func schedConfigureScroll(_ scroll: NSScrollView) {
-    scroll.hasVerticalScroller = false
+    scroll.hasVerticalScroller = true
     scroll.hasHorizontalScroller = false
     scroll.autohidesScrollers = true
     scroll.scrollerStyle = .overlay
@@ -716,6 +826,7 @@ func schedConfigureScroll(_ scroll: NSScrollView) {
 
 @MainActor
 func schedStyleSelector(_ control: NSControl) {
+    control.appearance = SchedDesign.windowAppearance
     control.controlSize = .large
     control.font = SchedDesign.body(13)
     control.translatesAutoresizingMaskIntoConstraints = false
@@ -732,14 +843,19 @@ final class SchedGlassField: NSView {
         field = NSTextField()
         field.placeholderString = placeholder
         field.font = SchedDesign.body(13)
+        field.textColor = SchedDesign.ink
         field.isBezeled = false
         field.isBordered = false
         field.drawsBackground = false
+        field.usesSingleLineMode = true
+        field.maximumNumberOfLines = 1
         field.focusRingType = .none
         field.translatesAutoresizingMaskIntoConstraints = false
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         addSubview(glass)
+        glass.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.78).cgColor
+        glass.layer?.borderColor = SchedDesign.line.withAlphaComponent(0.95).cgColor
         glass.innerContentView.addSubview(field)
         NSLayoutConstraint.activate([
             glass.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -750,6 +866,7 @@ final class SchedGlassField: NSView {
             field.leadingAnchor.constraint(equalTo: glass.innerContentView.leadingAnchor, constant: 12),
             field.trailingAnchor.constraint(equalTo: glass.innerContentView.trailingAnchor, constant: -12),
             field.centerYAnchor.constraint(equalTo: glass.innerContentView.centerYAnchor),
+            field.heightAnchor.constraint(greaterThanOrEqualToConstant: 20),
         ])
     }
 
@@ -761,7 +878,7 @@ final class SchedGlassTextView: NSView {
     let textView = NSTextView()
     private let glass: SchedGlassSurface
 
-    init(placeholder: String = "") {
+    init(placeholder: String = "", height: CGFloat = 76) {
         glass = SchedGlassSurface(cornerRadius: 10, tint: SchedDesign.fieldTint, interactive: true)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -773,24 +890,34 @@ final class SchedGlassTextView: NSView {
         scroll.autohidesScrollers = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
         textView.font = SchedDesign.body(13)
+        textView.textColor = SchedDesign.ink
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 2, height: 4)
+        // Give multiline text a real vertical runway. The previous 4pt inset
+        // combined with the enclosing clip view made the first baseline look
+        // visibly cut off at some window scales.
+        textView.textContainerInset = NSSize(width: 2, height: 8)
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.toolTip = placeholder
         scroll.documentView = textView
 
         addSubview(glass)
+        glass.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.78).cgColor
+        glass.layer?.borderColor = SchedDesign.line.withAlphaComponent(0.95).cgColor
         glass.innerContentView.addSubview(scroll)
         NSLayoutConstraint.activate([
             glass.leadingAnchor.constraint(equalTo: leadingAnchor),
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 76),
+            heightAnchor.constraint(equalToConstant: height),
             scroll.leadingAnchor.constraint(equalTo: glass.innerContentView.leadingAnchor, constant: 10),
             scroll.trailingAnchor.constraint(equalTo: glass.innerContentView.trailingAnchor, constant: -10),
             scroll.topAnchor.constraint(equalTo: glass.innerContentView.topAnchor, constant: 6),
@@ -806,6 +933,7 @@ func schedFormField(placeholder: String = "") -> NSTextField {
     let f = NSTextField()
     f.placeholderString = placeholder
     f.font = SchedDesign.body(13)
+    f.textColor = SchedDesign.ink
     f.isBezeled = false
     f.isBordered = false
     f.drawsBackground = false
@@ -818,148 +946,4 @@ func schedFormField(placeholder: String = "") -> NSTextField {
 @MainActor
 func schedGlassField(placeholder: String = "") -> SchedGlassField {
     SchedGlassField(placeholder: placeholder)
-}
-
-// MARK: - Gentle toast (interventions)
-
-@MainActor
-final class SchedGentleToast: NSView {
-    private let actionTarget: SchedToastTarget
-
-    init(
-        title: String,
-        note: String,
-        onDone: @escaping () -> Void,
-        onSnooze: @escaping (Int) -> Void,
-        onAction: (() -> Void)? = nil
-    ) {
-        actionTarget = SchedToastTarget(done: onDone, snooze: onSnooze, run: onAction)
-        super.init(frame: .zero)
-        let glass = SchedGlassSurface(
-            cornerRadius: 18,
-            tint: SchedDesign.levelColor(.gentle).withAlphaComponent(0.16),
-            interactive: false,
-            stableWhenInactive: true
-        )
-        glass.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(glass)
-        NSLayoutConstraint.activate([
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-        let inner = glass.innerContentView
-
-        let stripe = NSView()
-        stripe.wantsLayer = true
-        stripe.layer?.backgroundColor = SchedDesign.levelColor(.gentle).cgColor
-        stripe.layer?.cornerRadius = 2
-
-        let symbol = NSImageView(image: NSImage(systemSymbolName: "bell.badge.fill", accessibilityDescription: "Reminder") ?? NSImage())
-        symbol.contentTintColor = SchedDesign.accent
-        symbol.toolTip = "Drag the card to move it"
-
-        let eyebrow = NSTextField(labelWithString: "REMINDER  ·  \(SchedTimeFormat.string(from: .now))")
-        eyebrow.font = SchedDesign.section(10)
-        SchedDesign.label(eyebrow, color: SchedDesign.accent)
-
-        let t = NSTextField(labelWithString: title)
-        t.font = SchedDesign.title(16)
-        SchedDesign.label(t)
-        let n = NSTextField(wrappingLabelWithString: note.isEmpty ? "Time to switch." : note)
-        n.font = SchedDesign.body(12)
-        SchedDesign.label(n, color: SchedDesign.inkMuted)
-        n.maximumNumberOfLines = 2
-
-        let done = SchedPrimaryButton("Done", action: #selector(SchedToastTarget.done), target: actionTarget)
-        let snooze = SchedSnoozeButton(
-            defaultMinutes: ScheduleStore.shared.store.snoozeMinutes,
-            action: onSnooze
-        )
-        var buttons: [NSView] = [snooze]
-        if onAction != nil {
-            buttons.append(SchedGhostButton("Run action", action: #selector(SchedToastTarget.run), target: actionTarget))
-        }
-        buttons.append(done)
-        let buttonRow = NSStackView(views: buttons)
-        buttonRow.orientation = .horizontal
-        buttonRow.alignment = .centerY
-        buttonRow.spacing = 8
-
-        [stripe, symbol, eyebrow, t, n, buttonRow].forEach { inner.addSubview($0); $0.translatesAutoresizingMaskIntoConstraints = false }
-        NSLayoutConstraint.activate([
-            stripe.leadingAnchor.constraint(equalTo: inner.leadingAnchor, constant: 10),
-            stripe.topAnchor.constraint(equalTo: inner.topAnchor, constant: 16),
-            stripe.bottomAnchor.constraint(equalTo: inner.bottomAnchor, constant: -16),
-            stripe.widthAnchor.constraint(equalToConstant: 4),
-            eyebrow.leadingAnchor.constraint(equalTo: stripe.trailingAnchor, constant: 14),
-            eyebrow.topAnchor.constraint(equalTo: inner.topAnchor, constant: 14),
-            symbol.trailingAnchor.constraint(equalTo: inner.trailingAnchor, constant: -18),
-            symbol.topAnchor.constraint(equalTo: inner.topAnchor, constant: 14),
-            symbol.widthAnchor.constraint(equalToConstant: 20),
-            symbol.heightAnchor.constraint(equalToConstant: 20),
-            t.leadingAnchor.constraint(equalTo: inner.leadingAnchor, constant: 18),
-            t.topAnchor.constraint(equalTo: eyebrow.bottomAnchor, constant: 3),
-            t.trailingAnchor.constraint(equalTo: inner.trailingAnchor, constant: -18),
-            n.leadingAnchor.constraint(equalTo: t.leadingAnchor),
-            n.topAnchor.constraint(equalTo: t.bottomAnchor, constant: 2),
-            n.trailingAnchor.constraint(equalTo: inner.trailingAnchor, constant: -18),
-            n.bottomAnchor.constraint(lessThanOrEqualTo: buttonRow.topAnchor, constant: -8),
-            buttonRow.trailingAnchor.constraint(equalTo: inner.trailingAnchor, constant: -16),
-            buttonRow.bottomAnchor.constraint(equalTo: inner.bottomAnchor, constant: -14),
-        ])
-    }
-
-    @available(*, unavailable) required init?(coder: NSCoder) { nil }
-}
-
-@MainActor
-final class SchedToastTarget: NSObject {
-    private let doneHandler: () -> Void
-    private let runHandler: (() -> Void)?
-
-    init(done: @escaping () -> Void, snooze: @escaping (Int) -> Void, run: (() -> Void)?) {
-        doneHandler = done
-        runHandler = run
-    }
-
-    @objc func done() { doneHandler() }
-    @objc func run() { runHandler?() }
-}
-
-@MainActor
-final class SchedSnoozeButton: NSPopUpButton {
-    private let handler: (Int) -> Void
-
-    init(defaultMinutes: Int, action: @escaping (Int) -> Void) {
-        handler = action
-        super.init(frame: .zero, pullsDown: false)
-        bezelStyle = .rounded
-        controlSize = .large
-        font = SchedDesign.caption(12)
-        focusRingType = .none
-        translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 34).isActive = true
-        widthAnchor.constraint(greaterThanOrEqualToConstant: 116).isActive = true
-
-        addItem(withTitle: "Snooze…")
-        let options = Array(Set([defaultMinutes, 5, 10, 15, 30, 60])).sorted()
-        for minutes in options {
-            let item = NSMenuItem(title: "\(minutes) minutes", action: nil, keyEquivalent: "")
-            item.representedObject = minutes
-            menu?.addItem(item)
-        }
-        selectItem(at: 0)
-        target = self
-        self.action = #selector(didChooseDuration)
-    }
-
-    @objc private func didChooseDuration() {
-        guard let minutes = selectedItem?.representedObject as? Int else { return }
-        selectItem(at: 0)
-        handler(minutes)
-    }
-
-    @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }

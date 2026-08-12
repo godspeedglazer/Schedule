@@ -2,6 +2,11 @@ import AppKit
 
 @MainActor
 enum SchedDesign {
+    // Sched 1.0.x has an intentionally warm, light canvas. Explicitly opt the
+    // app's custom windows into Aqua so AppKit controls don't inherit white
+    // Dark Mode labels while sitting on the cream surfaces.
+    static let windowAppearance = NSAppearance(named: .aqua)
+
     static let canvas = NSColor(calibratedRed: 0.953, green: 0.941, blue: 0.910, alpha: 1)
     static let canvasDeep = NSColor(calibratedRed: 0.925, green: 0.908, blue: 0.875, alpha: 1)
     static let ink = NSColor(calibratedRed: 0.11, green: 0.105, blue: 0.098, alpha: 1)
@@ -57,12 +62,16 @@ enum SchedDesign {
         NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium)
     }
 
-    static func label(_ field: NSTextField, color: NSColor = ink) {
+    static func label(_ field: NSTextField, color: NSColor? = nil) {
         field.isBezeled = false
         field.drawsBackground = false
         field.isEditable = false
         field.isSelectable = false
-        field.textColor = color
+        field.textColor = color ?? ink
+    }
+
+    static func applyWindowAppearance(_ window: NSWindow) {
+        window.appearance = windowAppearance
     }
 
     static func labelStyle(_ field: NSTextField) { label(field) }

@@ -6,7 +6,7 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate, N
     private let listHeader = NSTextField(labelWithString: "Alarms")
     private let cardStack = NSStackView()
     private let listDocument = SchedFlippedView()
-    private let scroll = NSScrollView()
+    private let scroll = SchedBottomFadeScrollView()
     private let listEmpty = NSTextField(labelWithString: "No reminders yet. Add a daily or one-time reminder.\n“Make time visible.”")
     private let inspectorGlass = SchedGlassSurface(
         cornerRadius: SchedDesign.railCorner,
@@ -29,7 +29,11 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate, N
     private let datePicker = NSDatePicker()
     private let levelPopup = NSPopUpButton()
     private let soundPopup = NSPopUpButton()
-    private let previewSoundButton = SchedGhostButton("Preview Sound", action: #selector(previewInspectorSound), target: nil)
+    private let previewSoundButton = NSButton(
+        title: "Preview Sound",
+        target: nil,
+        action: #selector(previewInspectorSound)
+    )
     private let repeatCheck = NSButton(checkboxWithTitle: "Repeats every day", target: nil, action: nil)
     private let enabledCheck = NSButton(checkboxWithTitle: "Active", target: nil, action: nil)
     private let actionPopup = NSPopUpButton()
@@ -197,12 +201,23 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate, N
                 self?.rebuildAlarmList()
             }
         }
-        heroTimer?.invalidate()
-        heroTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.hero.refresh() }
-        }
+        startHeroTimer()
         rebuildAlarmList()
         reloadActionAppsMenu()
+    }
+
+    private func startHeroTimer() {
+        heroTimer?.invalidate()
+        // The hero only renders whole minutes. Aligning to the next minute
+        // avoids 60 needless wakeups for every visible minute.
+        let now = Date().timeIntervalSinceReferenceDate
+        let nextMinute = Date(timeIntervalSinceReferenceDate: floor(now / 60) * 60 + 60.05)
+        let timer = Timer(fire: nextMinute, interval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.hero.refresh() }
+        }
+        timer.tolerance = 1
+        heroTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func buildInspector() {
@@ -256,6 +271,16 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate, N
         soundPopup.target = self
         soundPopup.action = #selector(saveInspector)
         previewSoundButton.target = self
+        previewSoundButton.bezelStyle = .rounded
+        previewSoundButton.isBordered = true
+        previewSoundButton.bezelColor = .systemBlue
+        previewSoundButton.contentTintColor = .white
+        previewSoundButton.controlSize = .regular
+        previewSoundButton.font = SchedDesign.caption(12)
+        previewSoundButton.appearance = SchedDesign.windowAppearance
+        previewSoundButton.toolTip = "Preview selected sound"
+        previewSoundButton.translatesAutoresizingMaskIntoConstraints = false
+        previewSoundButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
         reloadSoundChoices(selected: nil)
         actionPopup.removeAllItems()
         for kind in SchedActionKind.userFacingCases {
@@ -397,6 +422,7 @@ final class SchedulePanelController: NSViewController, SchedAlarmCardDelegate, N
 
         listDocument.layoutSubtreeIfNeeded()
         scroll.reflectScrolledClipView(scroll.contentView)
+        scroll.refreshBottomFade()
 
         reloadInspector()
     }

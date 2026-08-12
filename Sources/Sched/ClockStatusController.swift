@@ -84,6 +84,7 @@ final class ClockStatusController: NSObject, NSMenuDelegate {
                 self?.refresh()
             }
         }
+        refreshTimer.tolerance = preferences.menuBarShowSeconds ? 0.05 : 1
         timer = refreshTimer
         RunLoop.main.add(refreshTimer, forMode: .common)
     }
